@@ -1,0 +1,42 @@
+{
+  plugins: {
+    // configuration of "storage_manager" plugin:
+    storage_manager: {
+      volumes: {
+        s3: {
+            url: "http://127.0.0.1:9000",
+            private: {
+                access_key: "AKIAIOSFODNN7EXAMPLE",
+                secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            }
+        }
+      },
+      storages: {
+        // configuration of a "demo" storage using the "influxdb" volume
+        s3_storage: {
+          // the key expression this storage will subscribes to
+          key_expr: "s3/example/*",
+          // this prefix will be stripped from the received key when converting to database key.
+          // i.e.: "demo/example/a/b" will be stored as "a/b"
+          // this option is optional
+          strip_prefix: "s3/example",
+          volume: {
+            id: "s3",
+            // the database name within InfluxDB
+            db: "s3_demo_example",
+            // if the database doesn't exist, create it
+            create_db: true,
+            // strategy on storage closure
+            on_closure: "do_nothing",
+            private: {
+                access_key: "AKIAIOSFODNN7EXAMPLE",
+                secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            }
+          }
+        }
+      }
+    },
+    // Optionally, add the REST plugin
+    rest: { http_port: 8000 }
+  }
+}

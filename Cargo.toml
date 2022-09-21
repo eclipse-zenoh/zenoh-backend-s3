@@ -12,7 +12,7 @@
 #   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 #
 [package]
-name = "zenoh_backend_rocksdb"
+name = "zenoh_backend_s3"
 version = "0.6.0-dev.0"
 authors = [
     "kydos <angelo@icorsaro.net>",
@@ -23,32 +23,37 @@ authors = [
 edition = "2018"
 
 [lib]
-name = "zbackend_rocksdb"
+name = "zbackend_s3"
 crate-type = ["cdylib"]
 
 [dependencies]
-zenoh_backend_traits = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh-buffers = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh-protocol = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh-collections = { git = "https://github.com/eclipse-zenoh/zenoh" }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh" }
-async-std = "=1.11.0"
+zenoh_backend_traits = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+zenoh = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes"}
+zenoh-buffers = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+zenoh-protocol = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+zenoh-collections = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "api-changes" }
+async-std = { version = "=1.12.0", default-features = false, features = [
+    "unstable",
+	"tokio1",
+] }
 async-trait = "0.1.42"
-uhlc = "0.4.0"
-lazy_static = "1.4.0"
 env_logger = "0.9.0"
-log = "0.4"
 git-version = "0.3.4"
-rocksdb = "0.17.0"
+http = "0.2.8"
+lazy_static = "1.4.0"
+log = "0.4"
+rust-s3 = "0.28"
 serde_json = "1.0"
+tokio = { version = "1.17.0", default-features = false, features = ["io-std", "macros", "net", "rt-multi-thread", "time", "io-util"] }
+uhlc = "0.4.0"
 
 [build-dependencies]
 rustc_version = "0.4.0"
 
 [package.metadata.deb]
-name = "zenoh-backend-rocksdb"
+name = "zenoh-backend-s3"
 maintainer = "zenoh-dev@eclipse.org"
 copyright = "2022 ZettaScale Technology"
 section = "net"
