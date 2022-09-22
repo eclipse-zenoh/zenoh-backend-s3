@@ -4,7 +4,7 @@
     storage_manager: {
       volumes: {
         s3: {
-            url: "http://127.0.0.1:9000",
+            url: "http://localhost:9000",
             private: {
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
@@ -19,18 +19,21 @@
           // this prefix will be stripped from the received key when converting to database key.
           // i.e.: "demo/example/a/b" will be stored as "a/b"
           // this option is optional
-          strip_prefix: "s3/example",
+          strip_prefix: "s3/example", //SHOULD THIS BE OPTIONAL??
           volume: {
             id: "s3",
-            // the database name within InfluxDB
-            db: "s3_demo_example",
-            // if the database doesn't exist, create it
-            create_db: true,
+            // if the bucket doesn't exist, create it
+            create_bucket: true,
+            // bucket name
+            bucket: "zenoh-test-bucket2",
+            // AWS region to which connect
+            region: "eu-west-3",
             // strategy on storage closure
             on_closure: "do_nothing",
             private: {
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                // secret_token
             }
           }
         }

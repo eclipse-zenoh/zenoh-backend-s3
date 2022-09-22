@@ -17,15 +17,25 @@
 use async_std::sync::{Arc, Mutex};
 use async_std::task::{sleep, JoinHandle};
 use async_trait::async_trait;
+use aws_config::meta::region::RegionProviderChain;
+use aws_config::AppName;
+use aws_sdk_s3::error::PutObjectError;
+use aws_sdk_s3::model::{BucketLocationConstraint, CreateBucketConfiguration};
+use aws_sdk_s3::output::PutObjectOutput;
+use aws_sdk_s3::presigning::config::PresigningConfig;
+use aws_sdk_s3::types::{ByteStream, SdkError};
+use aws_sdk_s3::{self, Client, Endpoint, Region};
+use aws_types::credentials::{ProvideCredentials, SharedCredentialsProvider};
+use aws_types::Credentials;
 use http::status::InvalidStatusCode;
 use http::{status, StatusCode};
 use log::{debug, warn};
-use s3::bucket::{self, Bucket};
-use s3::creds::Credentials;
-use s3::region::Region;
-use s3::BucketConfiguration;
-use std::fmt::Error;
-use std::path::PathBuf;
+use std::io::{Error, ErrorKind};
+use tokio::time::error;
+use zenoh_protocol::io;
+
+use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::Duration;
 use uhlc::NTP64;
 use zenoh::prelude::*;
@@ -41,26 +51,30 @@ use zenoh_collections::Timer;
 use zenoh_core::{bail, zerror};
 use zenoh_util::zenoh_home;
 
-// Properies used by the Backend
-pub const PROP_S3_ENDPOINT: &str = "url";
+// Properties used by the Backend
 pub const PROP_S3_ACCESS_KEY: &str = "access_key";
-pub const PROP_S3_SECRET_KEY: &str = "secret_key";
-pub const PROP_S3_REGION: &str = "region";
 pub const PROP_S3_BUCKET: &str = "bucket";
+pub const PROP_S3_ENDPOINT: &str = "url";
+pub const PROP_S3_REGION: &str = "region";
+pub const PROP_S3_SECRET_KEY: &str = "secret_key";
+pub const PROP_S3_SESSION_TOKEN: &str = "session_token";
+pub const PROP_S3_PROVIDER: &str = "provider";
 
-// Properies used by the Backend
-//  - None
-
-// Properies used by the Storage
+// Properties used by the Storage
 pub const PROP_STORAGE_DIR: &str = "dir";
-pub const PROP_STORAGE_CREATE_DB: &str = "create_db";
+pub const PROP_STORAGE_CREATE_BUCKET: &str = "create_bucket";
 pub const PROP_STORAGE_READ_ONLY: &str = "read_only";
 pub const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
+pub const PROP_STRIP_PREFIX: &str = "strip_prefix";
 
 const GIT_VERSION: &str = git_version::git_version!(prefix = "v", cargo_prefix = "v");
 lazy_static::lazy_static! {
     static ref LONG_VERSION: String = format!("{} built with {}", GIT_VERSION, env!("RUSTC_VERSION"));
 }
+
+// Constants
+const DEFAULT_BUCKET: &str = "zenoh-bucket";
+const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 
 pub(crate) enum OnClosure {
     DestroyBucket,
@@ -69,43 +83,6 @@ pub(crate) enum OnClosure {
 
 #[allow(dead_code)]
 const CREATE_BACKEND_TYPECHECK: CreateVolume = create_volume;
-
-fn get_private_conf<'a>(
-    config: &'a serde_json::Map<String, serde_json::Value>,
-    credit: &str,
-) -> ZResult<Option<&'a String>> {
-    match config.get_private(credit) {
-        PrivacyGetResult::NotFound => Ok(None),
-        PrivacyGetResult::Private(serde_json::Value::String(v)) => Ok(Some(v)),
-        PrivacyGetResult::Public(serde_json::Value::String(v)) => {
-            log::warn!(
-                r#"Value "{}" is given for `{}` publicly (i.e. is visible by anyone who can fetch the router configuration). You may want to replace `{}: "{}"` with `private: {{{}: "{}"}}`"#,
-                v,
-                credit,
-                credit,
-                v,
-                credit,
-                v
-            );
-            Ok(Some(v))
-        }
-        PrivacyGetResult::Both {
-            public: serde_json::Value::String(public),
-            private: serde_json::Value::String(private),
-        } => {
-            log::warn!(
-                r#"Value "{}" is given for `{}` publicly, but a private value also exists. The private value will be used, but the public value, which is {} the same as the private one, will still be visible in configurations."#,
-                public,
-                credit,
-                if public == private { "" } else { "not " }
-            );
-            Ok(Some(private))
-        }
-        _ => {
-            bail!("Optional property `{}` must be a string", credit)
-        }
-    }
-}
 
 #[no_mangle]
 pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
@@ -156,100 +133,64 @@ impl Volume for S3Backend {
 
     async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
         debug!("Creating storage. ");
-        let private_values = match (config.volume_cfg.get("private")) {
-            Some(private_fiels) => private_fiels,
-            _ => {
-                bail!("Couldn't retrieve private properties of the storage from json5 config file.")
-            }
+
+        let credentials = match _load_credentials_config(&config) {
+            Ok(credentials) => credentials,
+            Err(err) => bail!(err),
         };
 
-        let access_key = private_values.get(PROP_S3_ACCESS_KEY);
-        let secret_key = private_values.get(PROP_S3_SECRET_KEY);
-
-        let credentials = match (access_key, secret_key) {
-            (Some(access_key), Some(secret_key)) => Credentials {
-                access_key: Some(access_key.to_string()),
-                secret_key: Some(secret_key.to_string()),
-                security_token: None,
-                session_token: None,
-            },
-            _ => {
-                bail!(
-                    "Optional properties `{}` and `{}` must coexist",
-                    PROP_S3_ACCESS_KEY,
-                    PROP_S3_SECRET_KEY
-                )
-            }
+        let region = match _load_region_config(&config).await {
+            Ok(region) => region,
+            Err(err) => bail!(err),
         };
 
-        let region = match (config.volume_cfg.get(PROP_S3_REGION)) {
-            Some(serde_json::Value::String(region)) => Region::Custom {
-                region: region.to_owned(),
-                endpoint: self.endpoint.to_string(),
-            },
-            _ => {
-                warn!("Property {PROP_S3_REGION} was not specified!"); //TODO: handle unspecified region
-                Region::Custom {
-                    region: "".to_owned(),
-                    endpoint: self.endpoint.to_string(),
-                }
-            }
+        let bucket_name = match _load_bucket_name_config(&config) {
+            Ok(name) => name,
+            Err(err) => bail!(err),
         };
 
-        let bucket_name = match (config.volume_cfg.get(PROP_S3_BUCKET)) {
-            Some(serde_json::Value::String(name)) => name,
-            _ => {
-                warn!("Property {PROP_S3_BUCKET} was not specified!"); //TODO: handle unspecified bucket name
-                "zenoh-s3"
-            }
+        let path_prefix = match _load_path_prefix_config(&config) {
+            Ok(prefix) => prefix,
+            Err(err) => bail!(err),
         };
 
-        let bucket = Bucket::new_with_path_style(bucket_name, region, credentials)?;
+        let read_only = match _is_read_only_config(&config) {
+            Ok(read_only) => read_only,
+            Err(err) => bail!(err),
+        };
 
-        let path_expr = config.key_expr.clone();
-        let path_prefix = config.strip_prefix.clone().unwrap().to_string();
-        if !path_expr.starts_with(&path_prefix) {
-            bail!(
-                r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
-                path_prefix,
-                path_expr
-            )
+        let on_closure = match _load_on_closure_config(&config) {
+            Ok(on_closure) => on_closure,
+            Err(err) => bail!(err),
+        };
+
+        let sdk_config = aws_config::ConfigLoader::default()
+            .endpoint_resolver(Endpoint::immutable(
+                self.endpoint.parse().expect("Invalid endpoint: "),
+            ))
+            .region(region.to_owned())
+            .credentials_provider(credentials)
+            .load()
+            .await;
+
+        let client = Client::new(&sdk_config);
+
+        let create_bucket_config = _load_create_bucket_config(&config);
+
+        if create_bucket_config {
+            create_bucket(
+                client.to_owned(),
+                bucket_name.to_string(),
+                region.to_owned().to_string(),
+            );
         }
-
-        let volume_cfg = match config.volume_cfg.as_object() {
-            Some(v) => v,
-            None => bail!("S3 backend storages need volume-specific configurations"), //TODO: check
-        };
-
-        let read_only = match volume_cfg.get(PROP_STORAGE_READ_ONLY) {
-            None | Some(serde_json::Value::Bool(false)) => false,
-            Some(serde_json::Value::Bool(true)) => true,
-            _ => {
-                bail!(
-                    "Optional property `{}` of s3 storage configurations must be a boolean",
-                    PROP_STORAGE_READ_ONLY
-                )
-            }
-        };
-
-        let on_closure = match volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
-            Some(serde_json::Value::String(s)) if s == "destroy_bucket" => OnClosure::DestroyBucket,
-            Some(serde_json::Value::String(s)) if s == "do_nothing" => OnClosure::DoNothing,
-            None => OnClosure::DoNothing,
-            _ => {
-                bail!(
-                    r#"Optional property `{}` of S3 storage configurations must be either "do_nothing" (default) or "destroy_bucket""#,
-                    PROP_STORAGE_ON_CLOSURE
-                )
-            }
-        };
 
         Ok(Box::new(S3Storage {
             admin_status: config,
             path_prefix,
             on_closure,
             read_only,
-            bucket,
+            client,
         }))
     }
 
@@ -261,13 +202,12 @@ impl Volume for S3Backend {
         None
     }
 }
-
 struct S3Storage {
     admin_status: StorageConfig,
     path_prefix: String,
     on_closure: OnClosure,
     read_only: bool,
-    bucket: Bucket,
+    client: Client,
 }
 
 #[async_trait]
@@ -297,7 +237,13 @@ impl Storage for S3Storage {
         match sample.kind {
             SampleKind::Put => {
                 if !self.read_only {
-                    put_kv(&self.bucket, &key, sample.value, sample_ts).await
+                    put_object(
+                        &self.client,
+                        DEFAULT_BUCKET.to_string(),
+                        "example".to_string(),
+                        100,
+                    );
+                    Ok(StorageInsertionResult::Inserted)
                 } else {
                     warn!("Received PUT for read-only DB on {:?} - ignored", key);
                     Err("Received update for read-only DB".into())
@@ -318,42 +264,6 @@ impl Storage for S3Storage {
     }
 }
 
-async fn put_kv(
-    bucket: &Bucket,
-    key: &str,
-    value: Value,
-    sample_ts: Timestamp,
-) -> ZResult<StorageInsertionResult> {
-    //@TODO: Refactor code
-    let result = bucket
-        .put_object_with_content_type(key.to_string(), value.to_string().as_bytes(), "text/plain")
-        .await;
-    match result {
-        Ok((_, status_code)) => match StatusCode::from_u16(status_code) {
-            Ok(status_code) => {
-                debug!("Put success");
-                return Ok(StorageInsertionResult::Inserted);
-            }
-            Err(_) => {
-                debug!("Put failure");
-                return Err(zerror!(
-                    "S3 PUT operation failure: invalid status code {}.",
-                    status_code
-                )
-                .into());
-            }
-        },
-        Err(e) => {
-            debug!("Put failure");
-            return Err(zerror!("S3 PUT operation failure: {}", e.to_string()).into());
-        }
-    };
-}
-
-fn s3_err_to_zerr(status_code: StatusCode) -> zenoh_core::Error {
-    zerror!("S3 operation failure: {}", status_code.as_str()).into()
-}
-
 impl Drop for S3Storage {
     fn drop(&mut self) {
         async_std::task::block_on(async move {
@@ -370,5 +280,240 @@ impl Drop for S3Storage {
                 }
             }
         });
+    }
+}
+
+fn get_private_conf<'a>(
+    config: &'a serde_json::Map<String, serde_json::Value>,
+    credit: &str,
+) -> ZResult<Option<&'a String>> {
+    match config.get_private(credit) {
+        PrivacyGetResult::NotFound => Ok(None),
+        PrivacyGetResult::Private(serde_json::Value::String(v)) => Ok(Some(v)),
+        PrivacyGetResult::Public(serde_json::Value::String(v)) => {
+            log::warn!(
+                r#"Value "{}" is given for `{}` publicly (i.e. is visible by anyone who can fetch the router configuration). You may want to replace `{}: "{}"` with `private: {{{}: "{}"}}`"#,
+                v,
+                credit,
+                credit,
+                v,
+                credit,
+                v
+            );
+            Ok(Some(v))
+        }
+        PrivacyGetResult::Both {
+            public: serde_json::Value::String(public),
+            private: serde_json::Value::String(private),
+        } => {
+            log::warn!(
+                r#"Value "{}" is given for `{}` publicly, but a private value also exists. The private value will be used, but the public value, which is {} the same as the private one, will still be visible in configurations."#,
+                public,
+                credit,
+                if public == private { "" } else { "not " }
+            );
+            Ok(Some(private))
+        }
+        _ => {
+            bail!("Optional property `{}` must be a string", credit)
+        }
+    }
+}
+
+#[tokio::main]
+async fn create_bucket(client: Client, bucket: String, region: String) {
+    let constraint = BucketLocationConstraint::from(region.as_str());
+    let cfg = CreateBucketConfiguration::builder()
+        .location_constraint(constraint)
+        .build();
+    let creation_result = client
+        .create_bucket()
+        .create_bucket_configuration(cfg)
+        .bucket(bucket)
+        .send()
+        .await;
+    match creation_result {
+        Ok(ok) => debug!("Created bucket"),
+        Err(err) => debug!("Failure creating bucket: {}", err.to_string()),
+    }
+}
+
+#[tokio::main]
+async fn put_object(client: &Client, bucket: String, key: String, expires_in: u64) {
+    let expires_in = Duration::from_secs(expires_in);
+    let body = ByteStream::from("example file".as_bytes().to_vec());
+    client
+        .put_object()
+        .bucket(bucket)
+        .key(key)
+        .body(body)
+        .send()
+        .await;
+}
+
+fn _load_create_bucket_config(config: &StorageConfig) -> bool {
+    match config.volume_cfg.get(PROP_STORAGE_CREATE_BUCKET) {
+        Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
+        _ => false,
+    }
+}
+
+fn _load_on_closure_config(config: &StorageConfig) -> Result<OnClosure, Error> {
+    match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
+        Some(serde_json::Value::String(s)) if s == "destroy_bucket" => Ok(OnClosure::DestroyBucket),
+        Some(serde_json::Value::String(s)) if s == "do_nothing" => Ok(OnClosure::DoNothing),
+        None => Ok(OnClosure::DoNothing),
+        _ => {
+            let error_msg = format!(
+                r#"Optional property `{}` of S3 storage configurations must be either "do_nothing" (default) or "destroy_bucket""#,
+                PROP_STORAGE_ON_CLOSURE
+            );
+            Err(Error::new(ErrorKind::InvalidInput, error_msg))
+        }
+    }
+}
+
+fn _is_read_only_config(config: &StorageConfig) -> Result<bool, Error> {
+    match config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
+        None | Some(serde_json::Value::Bool(false)) => Ok(false),
+        Some(serde_json::Value::Bool(true)) => Ok(true),
+        _ => {
+            let error_msg = format!(
+                "Optional property `{}` of s3 storage configurations must be a boolean",
+                PROP_STORAGE_READ_ONLY
+            );
+            Err(Error::new(ErrorKind::InvalidInput, error_msg))
+        }
+    }
+}
+
+fn _load_path_prefix_config(config: &StorageConfig) -> Result<String, Error> {
+    let path_expr = config.key_expr.to_owned();
+
+    let path_prefix = match config.strip_prefix.to_owned() {
+        Some(prefix) => Ok(prefix.to_string()),
+        None => {
+            let error_msg = format!(
+                "Property '{PROP_STRIP_PREFIX}' was not specified on the configuration file!"
+            );
+            Err(Error::new(ErrorKind::InvalidInput, error_msg))
+        }
+    };
+
+    match path_prefix {
+        Ok(prefix) => {
+            if !path_expr.starts_with(&prefix) {
+                let error_msg = format!(
+                    r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
+                    prefix, path_expr
+                );
+                return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+            } else {
+                return Ok(prefix);
+            }
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn _load_bucket_name_config(config: &StorageConfig) -> Result<String, Error> {
+    let bucket_name = match (config.volume_cfg.get(PROP_S3_BUCKET)) {
+        Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
+        _ => {
+            let error_msg = format!("Property '{PROP_S3_BUCKET}' was not specified!"); //TODO: handle unspecified bucket name
+            Err(Error::new(ErrorKind::InvalidInput, error_msg))
+        }
+    };
+    return bucket_name;
+}
+
+/// Loads the credentials from the configuration json file.
+///
+/// TODO: fill comment.
+fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error> {
+    let private_values = match (config.volume_cfg.get("private")) {
+        Some(private_fiels) => private_fiels,
+        _ => {
+            let error_msg =
+                "Couldn't retrieve private properties of the storage from json5 config file.";
+            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+        }
+    };
+
+    let access_key = private_values.get(PROP_S3_ACCESS_KEY);
+    let secret_key = private_values.get(PROP_S3_SECRET_KEY);
+
+    if !access_key.is_some() {
+        let error_msg = format!("Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!");
+        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+    }
+    let access_key = access_key.unwrap();
+
+    if !access_key.is_string() {
+        let error_msg = format!("Property '{PROP_S3_ACCESS_KEY}' needs to be of string value!");
+        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+    }
+    let access_key = access_key.as_str();
+
+    if !secret_key.is_some() {
+        let error_msg = format!("Property '{PROP_S3_SECRET_KEY}' needs to be of specified!");
+        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+    }
+    let secret_key = secret_key.unwrap();
+
+    if !secret_key.is_string() {
+        let error_msg = format!("Property '{PROP_S3_SECRET_KEY}' needs to be of string value!");
+        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+    }
+    let secret_key = secret_key.as_str();
+
+    let session_token = match private_values.get(PROP_S3_SESSION_TOKEN) {
+        Some(token) => match token.as_str() {
+            Some(token) => Some(token.to_string()),
+            None => None,
+        },
+        None => None,
+    };
+
+    return Ok(Credentials::new(
+        access_key.unwrap(),
+        secret_key.unwrap(),
+        session_token,
+        None,
+        DEFAULT_PROVIDER,
+    ));
+}
+
+/// Loads the region from the config if specified, returns None otherwise.
+async fn _load_region_config(config: &StorageConfig) -> Result<Region, Error> {
+    let region_value: Result<String, Error> = match (config.volume_cfg.get(PROP_S3_REGION)) {
+        Some(value) => {
+            if value.is_string() {
+                Ok(value.as_str().map(|x| x.to_string()).unwrap())
+            } else {
+                let error_msg = format!("Property '{}' must be a string such as 'eu-west-3' or 'us-east-1', following the AWS specification.", PROP_S3_REGION);
+                return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+            }
+        }
+        _ => {
+            let error_msg =
+                format!("Property '{PROP_S3_REGION}' was not specified on the configuration file!");
+            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+        }
+    };
+    match region_value {
+        Ok(value) => {
+            let region = RegionProviderChain::first_try(aws_sdk_s3::Region::new(value.to_owned()))
+                .region()
+                .await;
+            match region {
+                Some(region) => Ok(region),
+                None => Err(Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Unable to load storage region '{}'", value),
+                )),
+            }
+        }
+        Err(err) => Err(err),
     }
 }
