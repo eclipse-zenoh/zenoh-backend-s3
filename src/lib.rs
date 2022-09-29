@@ -19,9 +19,9 @@ use async_std::task::{sleep, JoinHandle};
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::AppName;
-use aws_sdk_s3::error::PutObjectError;
+use aws_sdk_s3::error::{CreateBucketError, PutObjectError};
 use aws_sdk_s3::model::{BucketLocationConstraint, CreateBucketConfiguration};
-use aws_sdk_s3::output::PutObjectOutput;
+use aws_sdk_s3::output::{CreateBucketOutput, PutObjectOutput};
 use aws_sdk_s3::presigning::config::PresigningConfig;
 use aws_sdk_s3::types::{ByteStream, SdkError};
 use aws_sdk_s3::{self, Client, Endpoint, Region};
@@ -30,8 +30,10 @@ use aws_types::Credentials;
 use http::status::InvalidStatusCode;
 use http::{status, StatusCode};
 use log::{debug, warn};
+use std::future::Future;
 use std::io::{Error, ErrorKind};
 use tokio::time::error;
+use zenoh_buffers::ZBuf;
 use zenoh_protocol::io;
 
 use std::path::{Path, PathBuf};
@@ -144,7 +146,7 @@ impl Volume for S3Backend {
             Err(err) => bail!(err),
         };
 
-        let bucket_name = match _load_bucket_name_config(&config) {
+        let bucket = match _load_bucket_name_config(&config) {
             Ok(name) => name,
             Err(err) => bail!(err),
         };
@@ -178,19 +180,28 @@ impl Volume for S3Backend {
         let create_bucket_config = _load_create_bucket_config(&config);
 
         if create_bucket_config {
-            create_bucket(
-                client.to_owned(),
-                bucket_name.to_string(),
-                region.to_owned().to_string(),
-            );
+            create_bucket(client.to_owned(), bucket.to_string(), region.to_string());
         }
+
+        let storage_runtime = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => {
+                debug!("Tokio runtime created for storage operations.");
+                runtime
+            }
+            Err(err) => bail!(err),
+        };
 
         Ok(Box::new(S3Storage {
             admin_status: config,
+            runtime: storage_runtime,
             path_prefix,
             on_closure,
             read_only,
             client,
+            bucket,
         }))
     }
 
@@ -204,10 +215,12 @@ impl Volume for S3Backend {
 }
 struct S3Storage {
     admin_status: StorageConfig,
+    runtime: tokio::runtime::Runtime,
     path_prefix: String,
     on_closure: OnClosure,
     read_only: bool,
     client: Client,
+    bucket: String,
 }
 
 #[async_trait]
@@ -237,13 +250,32 @@ impl Storage for S3Storage {
         match sample.kind {
             SampleKind::Put => {
                 if !self.read_only {
-                    put_object(
-                        &self.client,
-                        DEFAULT_BUCKET.to_string(),
-                        "example".to_string(),
-                        100,
-                    );
-                    Ok(StorageInsertionResult::Inserted)
+                    // encode the value as a string to be stored in InfluxDB, converting to base64 if the buffer is not a UTF-8 string
+                    let (base64, strvalue) =
+                        match String::from_utf8(sample.payload.contiguous().into_owned()) {
+                            Ok(s) => (false, s),
+                            Err(err) => (true, base64::encode(err.into_bytes())),
+                        };
+
+                    match self.runtime.block_on(async {
+                        put_object(
+                            &self.client,
+                            self.bucket.to_owned(),
+                            sample.key_expr.to_string(),
+                            strvalue,
+                        )
+                        .await
+                    }) {
+                        Ok(_) => Ok(StorageInsertionResult::Inserted),
+                        Err(err) => {
+                            let error_msg = format!(
+                                "Put operation on bucket '{}' failed: {}",
+                                self.bucket,
+                                err.to_string()
+                            );
+                            Err(error_msg.into())
+                        }
+                    }
                 } else {
                     warn!("Received PUT for read-only DB on {:?} - ignored", key);
                     Err("Received update for read-only DB".into())
@@ -329,26 +361,31 @@ async fn create_bucket(client: Client, bucket: String, region: String) {
     let creation_result = client
         .create_bucket()
         .create_bucket_configuration(cfg)
-        .bucket(bucket)
+        .bucket(bucket.to_owned())
         .send()
         .await;
     match creation_result {
-        Ok(ok) => debug!("Created bucket"),
-        Err(err) => debug!("Failure creating bucket: {}", err.to_string()),
+        Ok(ok) => debug!("Created bucket '{}'", bucket),
+        Err(err) => debug!("Failure creating bucket '{}': {}", bucket, err.to_string()),
     }
 }
 
-#[tokio::main]
-async fn put_object(client: &Client, bucket: String, key: String, expires_in: u64) {
-    let expires_in = Duration::from_secs(expires_in);
-    let body = ByteStream::from("example file".as_bytes().to_vec());
+/// Puts
+///
+async fn put_object(
+    client: &Client,
+    bucket: String,
+    key: String,
+    value: String,
+) -> Result<PutObjectOutput, SdkError<PutObjectError>> {
+    let body = ByteStream::from(value.as_bytes().to_vec());
     client
         .put_object()
         .bucket(bucket)
         .key(key)
         .body(body)
         .send()
-        .await;
+        .await
 }
 
 fn _load_create_bucket_config(config: &StorageConfig) -> bool {

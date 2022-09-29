@@ -12,20 +12,20 @@
         }
       },
       storages: {
-        // configuration of a "demo" storage using the "influxdb" volume
+        // configuration of a "demo" storage using the S3 volume
         s3_storage: {
           // the key expression this storage will subscribes to
           key_expr: "s3/example/*",
           // this prefix will be stripped from the received key when converting to database key.
           // i.e.: "demo/example/a/b" will be stored as "a/b"
           // this option is optional
-          strip_prefix: "s3/example", //SHOULD THIS BE OPTIONAL??
+          strip_prefix: "s3/example",                                                                       //SHOULD THIS BE OPTIONAL??
           volume: {
             id: "s3",
             // if the bucket doesn't exist, create it
             create_bucket: true,
             // bucket name
-            bucket: "zenoh-test-bucket2",
+            bucket: "zenoh-test-bucket4",
             // AWS region to which connect
             region: "eu-west-3",
             // strategy on storage closure
