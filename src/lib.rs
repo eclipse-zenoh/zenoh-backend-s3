@@ -20,12 +20,17 @@ use async_std::task::{sleep, JoinHandle};
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
 use aws_config::AppName;
-use aws_sdk_s3::error::{CreateBucketError, PutObjectError};
-use aws_sdk_s3::model::{BucketLocationConstraint, CreateBucketConfiguration};
-use aws_sdk_s3::output::{CreateBucketOutput, PutObjectOutput};
+use aws_sdk_s3::error::{
+    CreateBucketError, DeleteObjectsError, ListObjectsV2Error, PutObjectError,
+};
+use aws_sdk_s3::model::{
+    BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
+};
+use aws_sdk_s3::output::{CreateBucketOutput, DeleteObjectsOutput, PutObjectOutput};
 use aws_sdk_s3::presigning::config::PresigningConfig;
 use aws_sdk_s3::types::{ByteStream, SdkError};
 use aws_sdk_s3::{self, Client, Endpoint, Region};
+use aws_smithy_http::operation::Response;
 use aws_types::credentials::{ProvideCredentials, SharedCredentialsProvider};
 use aws_types::Credentials;
 use http::status::InvalidStatusCode;
@@ -375,13 +380,31 @@ impl Drop for S3Storage {
         async_std::task::block_on(async move {
             match self.on_closure {
                 OnClosure::DestroyBucket => {
-                    debug!("Close S3 storage, destroying bucket {}", self.path_prefix);
-                    todo!();
+                    debug!("Close S3 storage, destroying bucket '{}'.", self.bucket);
+                    self.runtime.block_on(async {
+                        let objects = _list_objects_in_bucket(&self.client, &self.bucket).await;
+                        if objects.is_err() {
+                            debug!("Failed to destroy bucket '{}', unable to retrieve contained files for prior removal: {:#?}", self.bucket.to_owned(), objects.unwrap_err());
+                            return;
+                        }
+                        let delete_objects_result = _delete_objects_in_bucket(&self.client, &self.bucket, objects.unwrap_or_default()).await;
+                        if delete_objects_result.is_err() {
+                            debug!("Failed to destroy bucket '{}', unable to empty the bucket before removing it: {:#?}", self.bucket.to_owned(), delete_objects_result.unwrap_err());
+                            return;
+                        }
+                        debug!("Deleted objects from bucket '{}': {:#?}", self.bucket.to_owned(), delete_objects_result.unwrap());
+                        let delete_bucket_result = self.client.delete_bucket().bucket(&self.bucket).send().await;
+                        if delete_bucket_result.is_err() {
+                            debug!("Failed to destroy bucket '{}': {:?}", self.bucket.to_owned(), delete_bucket_result.unwrap_err());
+                            return;
+                        }
+                        debug!("Deleted bucket '{}'.", self.bucket.to_owned());
+                    });
                 }
                 OnClosure::DoNothing => {
                     debug!(
-                        "Close S3 storage, keeping database {} as it is",
-                        self.path_prefix
+                        "Close S3 storage, keeping bucket '{}' as it is.",
+                        self.bucket
                     );
                 }
             }
@@ -627,4 +650,46 @@ async fn _load_region_config(config: &StorageConfig) -> Result<Region, Error> {
         }
         Err(err) => Err(err),
     }
+}
+
+async fn _list_objects_in_bucket(
+    client: &Client,
+    bucket: &String,
+) -> Result<Vec<Object>, SdkError<ListObjectsV2Error>> {
+    match client.list_objects_v2().bucket(bucket).send().await {
+        Ok(response) => Ok(response.contents().unwrap_or_default().to_vec()),
+        Err(err) => Err(err),
+    }
+}
+
+async fn _delete_objects_in_bucket(
+    client: &Client,
+    bucket: &String,
+    objects: Vec<Object>,
+) -> Result<DeleteObjectsOutput, SdkError<DeleteObjectsError, Response>> {
+    if objects.is_empty() {
+        return Ok(DeleteObjectsOutput::builder()
+            .set_deleted(Some(vec![]))
+            .build());
+    }
+
+    let mut object_identifiers: Vec<ObjectIdentifier> = vec![];
+
+    for object in objects {
+        let identifier = ObjectIdentifier::builder()
+            .set_key(object.key().map(|x| x.to_string()))
+            .build();
+        object_identifiers.push(identifier);
+    }
+
+    let delete = Delete::builder()
+        .set_objects(Some(object_identifiers))
+        .build();
+
+    return client
+        .delete_objects()
+        .bucket(bucket)
+        .delete(delete)
+        .send()
+        .await;
 }

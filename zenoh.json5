@@ -25,11 +25,11 @@
             // if the bucket doesn't exist, create it
             create_bucket: true,
             // bucket name
-            bucket: "zenoh-test-bucket4",
+            bucket: "zenoh-test-bucket3",
             // AWS region to which connect
             region: "eu-west-3",
             // strategy on storage closure
-            on_closure: "do_nothing",
+            on_closure: "destroy_bucket",
             private: {
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
