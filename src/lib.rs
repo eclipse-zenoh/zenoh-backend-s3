@@ -250,7 +250,7 @@ impl Storage for S3Storage {
         match sample.kind {
             SampleKind::Put => {
                 if !self.read_only {
-                    // encode the value as a string to be stored in InfluxDB, converting to base64 if the buffer is not a UTF-8 string
+                    // encode the value as a string to be stored in S3, converting to base64 if the buffer is not a UTF-8 string
                     let (base64, strvalue) =
                         match String::from_utf8(sample.payload.contiguous().into_owned()) {
                             Ok(s) => (false, s),
@@ -261,7 +261,7 @@ impl Storage for S3Storage {
                         put_object(
                             &self.client,
                             self.bucket.to_owned(),
-                            sample.key_expr.to_string(),
+                            key.to_string(),
                             strvalue,
                         )
                         .await
@@ -281,7 +281,31 @@ impl Storage for S3Storage {
                     Err("Received update for read-only DB".into())
                 }
             }
-            SampleKind::Delete => todo!(),
+            SampleKind::Delete => {
+                if !self.read_only {
+                    match self.runtime.block_on(async {
+                        self.client
+                            .delete_object()
+                            .bucket(&self.bucket)
+                            .key(key)
+                            .send()
+                            .await
+                    }) {
+                        Ok(_) => Ok(StorageInsertionResult::Deleted),
+                        Err(err) => {
+                            let error_msg = format!(
+                                "Delete operation on bucket '{}' failed: {}",
+                                self.bucket,
+                                err.to_string()
+                            );
+                            Err(error_msg.into())
+                        }
+                    }
+                } else {
+                    warn!("Received DELETE for read-only DB on {:?} - ignored", key);
+                    Err("Received update for read-only DB".into())
+                }
+            }
         }
     }
 
