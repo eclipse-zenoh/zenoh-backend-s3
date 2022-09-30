@@ -14,6 +14,7 @@
 
 #![allow(unused)] // TODO(@darius): remove
 
+use async_std::stream::FromStream;
 use async_std::sync::{Arc, Mutex};
 use async_std::task::{sleep, JoinHandle};
 use async_trait::async_trait;
@@ -40,6 +41,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use uhlc::NTP64;
+use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh::properties::Properties;
 use zenoh::time::{new_reception_timestamp, Timestamp};
@@ -231,7 +233,6 @@ impl Storage for S3Storage {
 
     // When receiving a Sample (i.e. on PUT or DELETE operations)
     async fn on_sample(&mut self, sample: Sample) -> ZResult<StorageInsertionResult> {
-        debug!("On sample called.");
         let key = sample
             .key_expr
             .as_str()
@@ -242,6 +243,8 @@ impl Storage for S3Storage {
                     self.path_prefix
                 )
             })?;
+
+        debug!("'{}' called. Key: '{}'", sample.kind, key);
 
         // get latest timestamp for this key (if already exists in db)
         // and drop incoming sample if older
@@ -310,8 +313,55 @@ impl Storage for S3Storage {
     }
 
     async fn on_query(&mut self, query: Query) -> ZResult<()> {
-        debug!("On query called.");
-        todo!();
+        let key = query
+            .key_expr()
+            .as_str()
+            .strip_prefix(&self.path_prefix)
+            .ok_or_else(|| {
+                zerror!(
+                    "Received a Query not starting with path_prefix '{}'",
+                    self.path_prefix
+                )
+            })?;
+
+        debug!(
+            "Query operation received for '{}' on bucket '{}'.",
+            query.key_expr().as_str(),
+            self.bucket
+        );
+
+        match self.runtime.block_on(async {
+            self.client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await
+        }) {
+            Ok(result) => {
+                match result.body.collect().await.map(|data| data.into_bytes()) {
+                    Ok(bytes) => {
+                        //TODO: check how to process data
+                        let data = String::from_utf8_lossy(&Vec::from(bytes)).to_string();
+                        query
+                            .reply(Sample::new(query.key_expr().clone(), Value::from(data)))
+                            .res()
+                            .await;
+                        Ok(())
+                    }
+                    Err(_) => Err("Failure parsing content".into()),
+                }
+            }
+            Err(err) => {
+                let error_msg = format!(
+                    "Query operation on bucket '{}' for key '{}' failed: '{}'",
+                    self.bucket,
+                    key,
+                    err.to_string()
+                );
+                Err(error_msg.into())
+            }
+        }
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(OwnedKeyExpr, Timestamp)>> {
