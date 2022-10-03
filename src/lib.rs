@@ -369,9 +369,15 @@ impl Storage for S3Storage {
         }
     }
 
+    // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/1): create
+    // mechanism to store the Timestamp id and time on the bucket files in
+    // order to retrieve them here below.
     async fn get_all_entries(&self) -> ZResult<Vec<(OwnedKeyExpr, Timestamp)>> {
         debug!("Get all entries.");
-        todo!();
+        todo!(
+            "Issue 'https://github.com/DariusIMP/zenoh-backend-s3/issues/1' 
+        needs to be solved first before being able to retrieve all the entries."
+        );
     }
 }
 
