@@ -12,53 +12,32 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-#![allow(unused)] // TODO(@darius): remove
-
-use async_std::stream::FromStream;
-use async_std::sync::{Arc, Mutex};
-use async_std::task::{sleep, JoinHandle};
+use async_std::sync::Arc;
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
-use aws_config::AppName;
-use aws_sdk_s3::error::{
-    CreateBucketError, DeleteObjectsError, ListObjectsV2Error, PutObjectError,
-};
+use aws_sdk_s3::error::{DeleteObjectsError, ListObjectsV2Error, PutObjectError};
 use aws_sdk_s3::model::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
-use aws_sdk_s3::output::{CreateBucketOutput, DeleteObjectsOutput, PutObjectOutput};
-use aws_sdk_s3::presigning::config::PresigningConfig;
+use aws_sdk_s3::output::{DeleteObjectsOutput, PutObjectOutput};
 use aws_sdk_s3::types::{ByteStream, SdkError};
 use aws_sdk_s3::{self, Client, Endpoint, Region};
 use aws_smithy_http::operation::Response;
-use aws_types::credentials::{ProvideCredentials, SharedCredentialsProvider};
 use aws_types::Credentials;
-use http::status::InvalidStatusCode;
-use http::{status, StatusCode};
 use log::{debug, warn};
-use std::future::Future;
 use std::io::{Error, ErrorKind};
-use tokio::time::error;
-use zenoh_buffers::ZBuf;
-use zenoh_protocol::io;
 
-use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
-use uhlc::NTP64;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh::properties::Properties;
-use zenoh::time::{new_reception_timestamp, Timestamp};
+use zenoh::time::Timestamp;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{
     PrivacyGetResult, PrivacyTransparentGet, StorageConfig, VolumeConfig,
 };
 use zenoh_backend_traits::StorageInsertionResult;
 use zenoh_backend_traits::*;
-use zenoh_collections::Timer;
 use zenoh_core::{bail, zerror};
-use zenoh_util::zenoh_home;
 
 // Properties used by the Backend
 pub const PROP_S3_ACCESS_KEY: &str = "access_key";
@@ -82,7 +61,6 @@ lazy_static::lazy_static! {
 }
 
 // Constants
-const DEFAULT_BUCKET: &str = "zenoh-bucket";
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 
 pub(crate) enum OnClosure {
@@ -251,15 +229,11 @@ impl Storage for S3Storage {
 
         debug!("'{}' called. Key: '{}'", sample.kind, key);
 
-        // get latest timestamp for this key (if already exists in db)
-        // and drop incoming sample if older
-        let sample_ts = sample.timestamp.unwrap_or_else(new_reception_timestamp);
-
         match sample.kind {
             SampleKind::Put => {
                 if !self.read_only {
                     // encode the value as a string to be stored in S3, converting to base64 if the buffer is not a UTF-8 string
-                    let (base64, strvalue) =
+                    let (_, strvalue) =
                         match String::from_utf8(sample.payload.contiguous().into_owned()) {
                             Ok(s) => (false, s),
                             Err(err) => (true, base64::encode(err.into_bytes())),
@@ -346,13 +320,12 @@ impl Storage for S3Storage {
             Ok(result) => {
                 match result.body.collect().await.map(|data| data.into_bytes()) {
                     Ok(bytes) => {
-                        //TODO: check how to process data
+                        // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/2): manage content types
                         let data = String::from_utf8_lossy(&Vec::from(bytes)).to_string();
                         query
                             .reply(Sample::new(query.key_expr().clone(), Value::from(data)))
                             .res()
-                            .await;
-                        Ok(())
+                            .await
                     }
                     Err(_) => Err("Failure parsing content".into()),
                 }
@@ -468,7 +441,7 @@ async fn create_bucket(client: Client, bucket: String, region: String) {
         .send()
         .await;
     match creation_result {
-        Ok(ok) => debug!("Created bucket '{}'", bucket),
+        Ok(_) => debug!("Created bucket '{}'", bucket),
         Err(err) => debug!("Failure creating bucket '{}': {}", bucket, err.to_string()),
     }
 }
@@ -557,7 +530,7 @@ fn _load_path_prefix_config(config: &StorageConfig) -> Result<String, Error> {
 }
 
 fn _load_bucket_name_config(config: &StorageConfig) -> Result<String, Error> {
-    let bucket_name = match (config.volume_cfg.get(PROP_S3_BUCKET)) {
+    let bucket_name = match config.volume_cfg.get(PROP_S3_BUCKET) {
         Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
         _ => {
             let error_msg = format!("Property '{PROP_S3_BUCKET}' was not specified!"); //TODO: handle unspecified bucket name
@@ -571,7 +544,7 @@ fn _load_bucket_name_config(config: &StorageConfig) -> Result<String, Error> {
 ///
 /// TODO: fill comment.
 fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error> {
-    let private_values = match (config.volume_cfg.get("private")) {
+    let private_values = match config.volume_cfg.get("private") {
         Some(private_fiels) => private_fiels,
         _ => {
             let error_msg =
@@ -626,7 +599,7 @@ fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error
 
 /// Loads the region from the config if specified, returns None otherwise.
 async fn _load_region_config(config: &StorageConfig) -> Result<Region, Error> {
-    let region_value: Result<String, Error> = match (config.volume_cfg.get(PROP_S3_REGION)) {
+    let region_value: Result<String, Error> = match config.volume_cfg.get(PROP_S3_REGION) {
         Some(value) => {
             if value.is_string() {
                 Ok(value.as_str().map(|x| x.to_string()).unwrap())
