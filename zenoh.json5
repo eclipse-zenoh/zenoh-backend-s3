@@ -19,7 +19,7 @@
           // this prefix will be stripped from the received key when converting to database key.
           // i.e.: "demo/example/a/b" will be stored as "a/b"
           // this option is optional
-          strip_prefix: "s3/example",                                                                       //SHOULD THIS BE OPTIONAL??
+          strip_prefix: "s3/example",
           volume: {
             id: "s3",
             // if the bucket doesn't exist, create it
@@ -33,7 +33,6 @@
             private: {
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                // secret_token
             }
           }
         }

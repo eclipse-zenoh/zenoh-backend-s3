@@ -544,17 +544,30 @@ fn _load_bucket_name_config(config: &StorageConfig) -> Result<String, Error> {
 ///
 /// TODO: fill comment.
 fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error> {
-    let private_values = match config.volume_cfg.get("private") {
-        Some(private_fiels) => private_fiels,
-        _ => {
+    let volume_cfg = match config.volume_cfg.as_object() {
+        Some(v) => v,
+        None => {
             let error_msg =
                 "Couldn't retrieve private properties of the storage from json5 config file.";
             return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        }
+        },
     };
 
-    let access_key = private_values.get(PROP_S3_ACCESS_KEY);
-    let secret_key = private_values.get(PROP_S3_SECRET_KEY);
+    let access_key = match get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY) {
+        Ok(access_key) => access_key,
+        Err(err) => {
+            let error_msg = format!("Error loading property '{PROP_S3_ACCESS_KEY}': {}", err.to_string());
+            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+        },
+    };
+
+    let secret_key = match get_private_conf(volume_cfg, PROP_S3_SECRET_KEY) {
+        Ok(secret_key) => secret_key,
+        Err(err) => {
+            let error_msg = format!("Error loading property '{PROP_S3_SECRET_KEY}': {}", err.to_string());
+            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
+        },
+    };
 
     if !access_key.is_some() {
         let error_msg = format!("Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!");
@@ -562,36 +575,16 @@ fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error
     }
     let access_key = access_key.unwrap();
 
-    if !access_key.is_string() {
-        let error_msg = format!("Property '{PROP_S3_ACCESS_KEY}' needs to be of string value!");
-        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-    }
-    let access_key = access_key.as_str();
-
     if !secret_key.is_some() {
         let error_msg = format!("Property '{PROP_S3_SECRET_KEY}' needs to be of specified!");
         return Err(Error::new(ErrorKind::InvalidInput, error_msg));
     }
     let secret_key = secret_key.unwrap();
 
-    if !secret_key.is_string() {
-        let error_msg = format!("Property '{PROP_S3_SECRET_KEY}' needs to be of string value!");
-        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-    }
-    let secret_key = secret_key.as_str();
-
-    let session_token = match private_values.get(PROP_S3_SESSION_TOKEN) {
-        Some(token) => match token.as_str() {
-            Some(token) => Some(token.to_string()),
-            None => None,
-        },
-        None => None,
-    };
-
     return Ok(Credentials::new(
-        access_key.unwrap(),
-        secret_key.unwrap(),
-        session_token,
+        access_key,
+        secret_key,
+        None,
         None,
         DEFAULT_PROVIDER,
     ));
