@@ -25,6 +25,7 @@ use aws_sdk_s3::{self, Client, Endpoint, Region};
 use aws_smithy_http::operation::Response;
 use aws_types::Credentials;
 use log::{debug, warn};
+use std::convert::TryFrom;
 use std::io::{Error, ErrorKind};
 
 use zenoh::prelude::r#async::AsyncResolve;
@@ -125,6 +126,8 @@ impl Volume for S3Backend {
             Ok(credentials) => credentials,
             Err(err) => bail!(err),
         };
+
+        //let credentials = _load_credentials_config(&config).map_err(|e| zerror!("Failure loading credentials {}", e))?;
 
         let region = match _load_region_config(&config).await {
             Ok(region) => region,
@@ -232,19 +235,12 @@ impl Storage for S3Storage {
         match sample.kind {
             SampleKind::Put => {
                 if !self.read_only {
-                    // encode the value as a string to be stored in S3, converting to base64 if the buffer is not a UTF-8 string
-                    let (_, strvalue) =
-                        match String::from_utf8(sample.payload.contiguous().into_owned()) {
-                            Ok(s) => (false, s),
-                            Err(err) => (true, base64::encode(err.into_bytes())),
-                        };
-
                     match self.runtime.block_on(async {
                         put_object(
                             &self.client,
                             self.bucket.to_owned(),
                             key.to_string(),
-                            strvalue,
+                            &sample,
                         )
                         .await
                     }) {
@@ -253,7 +249,7 @@ impl Storage for S3Storage {
                             let error_msg = format!(
                                 "Put operation on bucket '{}' failed: {}",
                                 self.bucket,
-                                err.to_string()
+                                err.to_string() //TODO: specify log::err, log::warn...
                             );
                             Err(error_msg.into())
                         }
@@ -318,12 +314,19 @@ impl Storage for S3Storage {
                 .await
         }) {
             Ok(result) => {
+                let encoding = result.content_encoding().map(|x| x.to_string());
                 match result.body.collect().await.map(|data| data.into_bytes()) {
                     Ok(bytes) => {
-                        // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/2): manage content types
-                        let data = String::from_utf8_lossy(&Vec::from(bytes)).to_string();
+                        let value = match encoding {
+                            Some(encoding) => match Encoding::try_from(encoding) {
+                                Ok(encoding) => Value::from(Vec::from(bytes)).encoding(encoding),
+                                Err(_) => Value::from(Vec::from(bytes)),
+                            },
+                            None => Value::from(Vec::from(bytes)),
+                        };
+                        debug!("XXXX Encoding: {}", value.to_owned().encoding.to_string());
                         query
-                            .reply(Sample::new(query.key_expr().clone(), Value::from(data)))
+                            .reply(Sample::new(query.key_expr().clone(), value))
                             .res()
                             .await
                     }
@@ -356,7 +359,7 @@ impl Storage for S3Storage {
 
 impl Drop for S3Storage {
     fn drop(&mut self) {
-        async_std::task::block_on(async move {
+        async_std::task::block_on(async move { //task::spawn vs task::block_on
             match self.on_closure {
                 OnClosure::DestroyBucket => {
                     debug!("Close S3 storage, destroying bucket '{}'.", self.bucket);
@@ -446,20 +449,25 @@ async fn create_bucket(client: Client, bucket: String, region: String) {
     }
 }
 
+// TODO: we can create a structure encapsulating client + bucket, with "methods" like put_object which would only receive the key and the sample.
+// Create module? 
+
 /// Puts
 ///
 async fn put_object(
     client: &Client,
     bucket: String,
     key: String,
-    value: String,
+    sample: &Sample,
 ) -> Result<PutObjectOutput, SdkError<PutObjectError>> {
-    let body = ByteStream::from(value.as_bytes().to_vec());
+    let body = ByteStream::from(sample.payload.contiguous().to_vec());
+
     client
         .put_object()
         .bucket(bucket)
         .key(key)
         .body(body)
+        .set_content_encoding(Some(sample.encoding.to_string()))
         .send()
         .await
 }
@@ -500,8 +508,10 @@ fn _is_read_only_config(config: &StorageConfig) -> Result<bool, Error> {
     }
 }
 
+// TODO: Return ZResult
 fn _load_path_prefix_config(config: &StorageConfig) -> Result<String, Error> {
     let path_expr = config.key_expr.to_owned();
+    // map_or_else or map_err?.
 
     let path_prefix = match config.strip_prefix.to_owned() {
         Some(prefix) => Ok(prefix.to_string()),
@@ -550,23 +560,29 @@ fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error
             let error_msg =
                 "Couldn't retrieve private properties of the storage from json5 config file.";
             return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        },
+        }
     };
 
     let access_key = match get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY) {
         Ok(access_key) => access_key,
         Err(err) => {
-            let error_msg = format!("Error loading property '{PROP_S3_ACCESS_KEY}': {}", err.to_string());
+            let error_msg = format!(
+                "Error loading property '{PROP_S3_ACCESS_KEY}': {}",
+                err.to_string()
+            );
             return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        },
+        }
     };
 
     let secret_key = match get_private_conf(volume_cfg, PROP_S3_SECRET_KEY) {
         Ok(secret_key) => secret_key,
         Err(err) => {
-            let error_msg = format!("Error loading property '{PROP_S3_SECRET_KEY}': {}", err.to_string());
+            let error_msg = format!(
+                "Error loading property '{PROP_S3_SECRET_KEY}': {}",
+                err.to_string()
+            );
             return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        },
+        }
     };
 
     if !access_key.is_some() {

@@ -35,7 +35,8 @@
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             }
           }
-        }
+        },
+        
       }
     },
     // Optionally, add the REST plugin
