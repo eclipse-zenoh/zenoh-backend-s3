@@ -12,6 +12,8 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+pub mod s3config;
+
 use async_std::sync::Arc;
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
@@ -26,7 +28,6 @@ use aws_smithy_http::operation::Response;
 use aws_types::Credentials;
 use log::{debug, warn};
 use std::convert::TryFrom;
-use std::io::{Error, ErrorKind};
 
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
@@ -122,37 +123,12 @@ impl Volume for S3Backend {
     async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
         debug!("Creating storage. ");
 
-        let credentials = match _load_credentials_config(&config) {
-            Ok(credentials) => credentials,
-            Err(err) => bail!(err),
-        };
-
-        //let credentials = _load_credentials_config(&config).map_err(|e| zerror!("Failure loading credentials {}", e))?;
-
-        let region = match _load_region_config(&config).await {
-            Ok(region) => region,
-            Err(err) => bail!(err),
-        };
-
-        let bucket = match _load_bucket_name_config(&config) {
-            Ok(name) => name,
-            Err(err) => bail!(err),
-        };
-
-        let path_prefix = match _load_path_prefix_config(&config) {
-            Ok(prefix) => prefix,
-            Err(err) => bail!(err),
-        };
-
-        let read_only = match _is_read_only_config(&config) {
-            Ok(read_only) => read_only,
-            Err(err) => bail!(err),
-        };
-
-        let on_closure = match _load_on_closure_config(&config) {
-            Ok(on_closure) => on_closure,
-            Err(err) => bail!(err),
-        };
+        let credentials = _load_credentials_config(&config)?;
+        let region = _load_region_config(&config).await?;
+        let bucket = _load_bucket_name_config(&config)?;
+        let path_prefix = _load_path_prefix_config(&config)?;
+        let read_only = _is_read_only_config(&config)?;
+        let on_closure = _load_on_closure_config(&config)?;
 
         let sdk_config = aws_config::ConfigLoader::default()
             .endpoint_resolver(Endpoint::immutable(
@@ -201,6 +177,7 @@ impl Volume for S3Backend {
         None
     }
 }
+
 struct S3Storage {
     admin_status: StorageConfig,
     runtime: tokio::runtime::Runtime,
@@ -359,7 +336,8 @@ impl Storage for S3Storage {
 
 impl Drop for S3Storage {
     fn drop(&mut self) {
-        async_std::task::block_on(async move { //task::spawn vs task::block_on
+        async_std::task::block_on(async move {
+            //task::spawn vs task::block_on
             match self.on_closure {
                 OnClosure::DestroyBucket => {
                     debug!("Close S3 storage, destroying bucket '{}'.", self.bucket);
@@ -450,7 +428,7 @@ async fn create_bucket(client: Client, bucket: String, region: String) {
 }
 
 // TODO: we can create a structure encapsulating client + bucket, with "methods" like put_object which would only receive the key and the sample.
-// Create module? 
+// Create module?
 
 /// Puts
 ///
@@ -479,123 +457,82 @@ fn _load_create_bucket_config(config: &StorageConfig) -> bool {
     }
 }
 
-fn _load_on_closure_config(config: &StorageConfig) -> Result<OnClosure, Error> {
+fn _load_on_closure_config(config: &StorageConfig) -> ZResult<OnClosure> {
     match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
         Some(serde_json::Value::String(s)) if s == "destroy_bucket" => Ok(OnClosure::DestroyBucket),
         Some(serde_json::Value::String(s)) if s == "do_nothing" => Ok(OnClosure::DoNothing),
         None => Ok(OnClosure::DoNothing),
-        _ => {
-            let error_msg = format!(
-                r#"Optional property `{}` of S3 storage configurations must be either "do_nothing" (default) or "destroy_bucket""#,
-                PROP_STORAGE_ON_CLOSURE
-            );
-            Err(Error::new(ErrorKind::InvalidInput, error_msg))
-        }
+        _ => Err(zerror!(r#"Optional property `{PROP_STORAGE_ON_CLOSURE}` of S3 storage configurations must be either "do_nothing" (default) or "destroy_bucket""#).into())
     }
 }
 
-fn _is_read_only_config(config: &StorageConfig) -> Result<bool, Error> {
+fn _is_read_only_config(config: &StorageConfig) -> ZResult<bool> {
     match config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
         None | Some(serde_json::Value::Bool(false)) => Ok(false),
         Some(serde_json::Value::Bool(true)) => Ok(true),
-        _ => {
-            let error_msg = format!(
-                "Optional property `{}` of s3 storage configurations must be a boolean",
-                PROP_STORAGE_READ_ONLY
-            );
-            Err(Error::new(ErrorKind::InvalidInput, error_msg))
-        }
+        _ => Err(zerror!("Optional property `{PROP_STORAGE_READ_ONLY}` of s3 storage configurations must be a boolean").into())
     }
 }
 
-// TODO: Return ZResult
-fn _load_path_prefix_config(config: &StorageConfig) -> Result<String, Error> {
+fn _load_path_prefix_config(config: &StorageConfig) -> ZResult<String> {
     let path_expr = config.key_expr.to_owned();
-    // map_or_else or map_err?.
-
-    let path_prefix = match config.strip_prefix.to_owned() {
-        Some(prefix) => Ok(prefix.to_string()),
-        None => {
-            let error_msg = format!(
+    let prefix = config.strip_prefix.to_owned().map_or_else(
+        || {
+            Err(zerror!(
                 "Property '{PROP_STRIP_PREFIX}' was not specified on the configuration file!"
-            );
-            Err(Error::new(ErrorKind::InvalidInput, error_msg))
-        }
-    };
-
-    match path_prefix {
-        Ok(prefix) => {
-            if !path_expr.starts_with(&prefix) {
-                let error_msg = format!(
-                    r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
-                    prefix, path_expr
-                );
-                return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-            } else {
-                return Ok(prefix);
-            }
-        }
-        Err(err) => Err(err),
+            ))
+        },
+        |prefix| Ok(prefix.to_string()),
+    )?;
+    if !path_expr.starts_with(&prefix) {
+        Err(zerror!(
+            r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
+            prefix,
+            path_expr
+        )
+        .into())
+    } else {
+        Ok(prefix)
     }
 }
 
-fn _load_bucket_name_config(config: &StorageConfig) -> Result<String, Error> {
-    let bucket_name = match config.volume_cfg.get(PROP_S3_BUCKET) {
+fn _load_bucket_name_config(config: &StorageConfig) -> ZResult<String> {
+    Ok(match config.volume_cfg.get(PROP_S3_BUCKET) {
         Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
-        _ => {
-            let error_msg = format!("Property '{PROP_S3_BUCKET}' was not specified!"); //TODO: handle unspecified bucket name
-            Err(Error::new(ErrorKind::InvalidInput, error_msg))
-        }
-    };
-    return bucket_name;
+        _ => Err(zerror!("Property '{PROP_S3_BUCKET}' was not specified!")),
+    }?)
 }
 
 /// Loads the credentials from the configuration json file.
 ///
 /// TODO: fill comment.
-fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error> {
-    let volume_cfg = match config.volume_cfg.as_object() {
-        Some(v) => v,
-        None => {
-            let error_msg =
-                "Couldn't retrieve private properties of the storage from json5 config file.";
-            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        }
-    };
+fn _load_credentials_config(config: &StorageConfig) -> ZResult<Credentials> {
+    let volume_cfg = config.volume_cfg.as_object().map_or_else(
+        || Err("Couldn't retrieve private properties of the storage from json5 config file."),
+        |config| Ok(config),
+    )?;
 
-    let access_key = match get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY) {
-        Ok(access_key) => access_key,
-        Err(err) => {
-            let error_msg = format!(
-                "Error loading property '{PROP_S3_ACCESS_KEY}': {}",
-                err.to_string()
-            );
-            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        }
-    };
+    let access_key = get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY)
+        .map_err(|err| zerror!("Could not load '{}': {}", PROP_S3_ACCESS_KEY, err))?
+        .map_or_else(
+            || {
+                Err(zerror!(
+                    "Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!"
+                ))
+            },
+            |key| Ok(key),
+        )?;
 
-    let secret_key = match get_private_conf(volume_cfg, PROP_S3_SECRET_KEY) {
-        Ok(secret_key) => secret_key,
-        Err(err) => {
-            let error_msg = format!(
-                "Error loading property '{PROP_S3_SECRET_KEY}': {}",
-                err.to_string()
-            );
-            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        }
-    };
-
-    if !access_key.is_some() {
-        let error_msg = format!("Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!");
-        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-    }
-    let access_key = access_key.unwrap();
-
-    if !secret_key.is_some() {
-        let error_msg = format!("Property '{PROP_S3_SECRET_KEY}' needs to be of specified!");
-        return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-    }
-    let secret_key = secret_key.unwrap();
+    let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)
+        .map_err(|err| err)?
+        .map_or_else(
+            || {
+                Err(zerror!(
+                    "Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"
+                ))
+            },
+            |key| Ok(key),
+        )?;
 
     return Ok(Credentials::new(
         access_key,
@@ -607,37 +544,28 @@ fn _load_credentials_config(config: &StorageConfig) -> Result<Credentials, Error
 }
 
 /// Loads the region from the config if specified, returns None otherwise.
-async fn _load_region_config(config: &StorageConfig) -> Result<Region, Error> {
-    let region_value: Result<String, Error> = match config.volume_cfg.get(PROP_S3_REGION) {
-        Some(value) => {
-            if value.is_string() {
-                Ok(value.as_str().map(|x| x.to_string()).unwrap())
-            } else {
-                let error_msg = format!("Property '{}' must be a string such as 'eu-west-3' or 'us-east-1', following the AWS specification.", PROP_S3_REGION);
-                return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-            }
-        }
-        _ => {
-            let error_msg =
-                format!("Property '{PROP_S3_REGION}' was not specified on the configuration file!");
-            return Err(Error::new(ErrorKind::InvalidInput, error_msg));
-        }
-    };
-    match region_value {
-        Ok(value) => {
-            let region = RegionProviderChain::first_try(aws_sdk_s3::Region::new(value.to_owned()))
-                .region()
-                .await;
-            match region {
-                Some(region) => Ok(region),
-                None => Err(Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Unable to load storage region '{}'", value),
-                )),
-            }
-        }
-        Err(err) => Err(err),
-    }
+async fn _load_region_config(config: &StorageConfig) -> ZResult<Region> {
+    let region_code = config
+        .volume_cfg
+        .get(PROP_S3_REGION)
+        .map_or_else(
+            || {
+                Err(zerror!(
+                    "Property '{PROP_S3_REGION}' was not specified on the configuration file!"
+                ))
+            },
+            |region| Ok(region.to_string()),
+        )
+        .map_err(|err| zerror!("Unable to load storage region: {err}"))?;
+
+    let region = RegionProviderChain::first_try(aws_sdk_s3::Region::new(region_code.to_owned()))
+        .region()
+        .await
+        .map_or_else(
+            || Err(zerror!("Unable to load storage region '{region_code}'")),
+            |region| Ok(region),
+        )?;
+    Ok(region)
 }
 
 async fn _list_objects_in_bucket(
