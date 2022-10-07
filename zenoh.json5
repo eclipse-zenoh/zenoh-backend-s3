@@ -41,5 +41,12 @@
     },
     // Optionally, add the REST plugin
     rest: { http_port: 8000 }
-  }
+  },
+  adminspace: {
+    // read and/or write permissions on the admin space
+    permissions: {
+      read: true,
+      write: true,
+    },
+  },
 }
