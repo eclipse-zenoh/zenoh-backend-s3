@@ -19,7 +19,6 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use client::S3Client;
-use log::{debug, warn};
 use std::convert::TryFrom;
 
 use zenoh::prelude::r#async::AsyncResolve;
@@ -93,19 +92,18 @@ impl Volume for S3Backend {
     }
 
     async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
-        debug!("Creating storage. ");
-        let config: S3Config = S3Config::new(config);
+        log::debug!("Creating storage {:?}", config);
+        let config: S3Config = S3Config::new(&config).await?;
 
-        let credentials = config.load_credentials()?;
-        let region = config.load_region().await?;
-        let bucket = config.load_bucket_name()?;
-        let path_prefix = config.load_path_prefix()?;
-        let read_only = config.is_read_only()?;
-        let on_closure = config.load_on_closure()?;
+        let client = S3Client::new(
+            config.credentials.to_owned(),
+            config.region.to_owned(),
+            config.bucket.to_owned(),
+            self.endpoint.to_owned(),
+        )
+        .await;
 
-        let client = S3Client::new(credentials, region, self.endpoint.to_owned(), bucket).await;
-
-        if config.create_bucket_is_enabled() {
+        if config.create_bucket_is_enabled {
             let create_bucket_result = client.create_bucket();
             if create_bucket_result.is_err() {
                 log::debug!("{}", create_bucket_result.unwrap_err().to_string());
@@ -127,9 +125,6 @@ impl Volume for S3Backend {
             config,
             client,
             runtime: storage_runtime,
-            path_prefix,
-            on_closure,
-            read_only,
         }))
     }
 
@@ -146,63 +141,66 @@ struct S3Storage {
     config: S3Config,
     client: S3Client,
     runtime: tokio::runtime::Runtime,
-    path_prefix: String,
-    on_closure: config::OnClosure,
-    read_only: bool,
 }
 
 #[async_trait]
 impl Storage for S3Storage {
     fn get_admin_status(&self) -> serde_json::Value {
-        self.config.get_admin_status()
+        self.config.admin_status.to_owned()
     }
 
     // When receiving a Sample (i.e. on PUT or DELETE operations)
     async fn on_sample(&mut self, sample: Sample) -> ZResult<StorageInsertionResult> {
-        log::debug!("'{}' called on client {:?}. Key: '{}'", sample.kind, self.client, sample.key_expr);
+        log::debug!(
+            "'{}' called on client {:?}. Key: '{}'",
+            sample.kind,
+            self.client,
+            sample.key_expr
+        );
         let key = sample
             .key_expr
             .as_str()
-            .strip_prefix(&self.path_prefix)
+            .strip_prefix(&self.config.path_prefix)
             .ok_or_else(|| {
                 zerror!(
                     "Received a Sample not starting with path_prefix '{}'",
-                    self.path_prefix
+                    self.config.path_prefix
                 )
             })?;
 
         match sample.kind {
             SampleKind::Put => {
-                if !self.read_only {
+                if !self.config.is_read_only {
                     self.runtime
                         .block_on(async {
-                            self.client.put_object(key.to_string(), sample.to_owned()).await
+                            self.client
+                                .put_object(key.to_string(), sample.to_owned())
+                                .await
                         })
                         .map_err(|e| zerror!("Put operation failed: {e}"))?;
                     Ok(StorageInsertionResult::Inserted)
                 } else {
-                    warn!("Received PUT for read-only DB on {:?} - ignored", key);
+                    log::warn!("Received PUT for read-only DB on {:?} - ignored", key);
                     Err("Received update for read-only DB".into())
                 }
             }
             SampleKind::Delete => {
-                if !self.read_only {
+                if !self.config.is_read_only {
                     match self
                         .runtime
-                        .block_on(async { self.client.delete_bucket().await })
+                        .block_on(async { self.client.delete_object(key.to_string()).await })
                     {
                         Ok(_) => Ok(StorageInsertionResult::Deleted),
                         Err(err) => {
                             let error_msg = format!(
                                 "Delete operation on bucket '{:?}' failed: {}",
-                                self.client,
-                                err.to_string()
+                                self.client, err
                             );
                             Err(error_msg.into())
                         }
                     }
                 } else {
-                    warn!("Received DELETE for read-only DB on {:?} - ignored", key);
+                    log::warn!("Received DELETE for read-only DB on {:?} - ignored", key);
                     Err("Received update for read-only DB".into())
                 }
             }
@@ -213,11 +211,11 @@ impl Storage for S3Storage {
         let key = query
             .key_expr()
             .as_str()
-            .strip_prefix(&self.path_prefix)
+            .strip_prefix(&self.config.path_prefix)
             .ok_or_else(|| {
                 zerror!(
                     "Received a Query not starting with path_prefix '{}'",
-                    self.path_prefix
+                    self.config.path_prefix
                 )
             })?;
 
@@ -251,13 +249,13 @@ impl Storage for S3Storage {
                 }
             }
             Err(err) => {
-                let error_msg = format!(
+                log::debug!(
                     "Query operation on bucket '{:?}' for key '{}' failed: '{}'",
                     self.client,
                     key,
-                    err.to_string()
+                    err
                 );
-                Err(error_msg.into())
+                Err(err)
             }
         }
     }
@@ -278,7 +276,7 @@ impl Drop for S3Storage {
     fn drop(&mut self) {
         async_std::task::block_on(async move {
             //TODO: task::spawn vs task::block_on
-            match self.on_closure {
+            match self.config.on_closure {
                 config::OnClosure::DestroyBucket => match self.client.delete_bucket().await {
                     Ok(_) => log::debug!("Closing S3 storage {:?}", self.client),
                     Err(err) => log::debug!(

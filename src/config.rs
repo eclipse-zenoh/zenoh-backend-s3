@@ -38,22 +38,43 @@ pub enum OnClosure {
 }
 
 pub struct S3Config {
-    config: StorageConfig,
+    pub credentials: Credentials,
+    pub region: Region,
+    pub bucket: String,
+    pub path_prefix: String,
+    pub is_read_only: bool,
+    pub on_closure: OnClosure,
+    pub admin_status: serde_json::Value,
+    pub create_bucket_is_enabled: bool,
 }
 
 impl S3Config {
-    pub fn new(config: StorageConfig) -> Self {
-        S3Config { config }
+    pub async fn new(config: &StorageConfig) -> ZResult<Self> {
+        let credentials = S3Config::load_credentials(config)?;
+        let region = S3Config::load_region(config).await?;
+        let path_prefix = S3Config::load_path_prefix(config)?;
+        let bucket = S3Config::load_bucket_name(config)?;
+        let is_read_only = S3Config::is_read_only(config)?;
+        let on_closure = S3Config::load_on_closure(config)?;
+        let create_bucket_is_enabled = S3Config::create_bucket_is_enabled(config);
+        let admin_status = config.to_json_value();
+
+        Ok(S3Config {
+            credentials,
+            region,
+            bucket,
+            path_prefix,
+            is_read_only,
+            on_closure,
+            admin_status,
+            create_bucket_is_enabled,
+        })
     }
 
-    pub fn get_admin_status(&self) -> serde_json::Value {
-        self.config.to_json_value()
-    }
-
-    pub fn load_credentials(&self) -> ZResult<Credentials> {
-        let volume_cfg = self.config.volume_cfg.as_object().map_or_else(
+    fn load_credentials(config: &StorageConfig) -> ZResult<Credentials> {
+        let volume_cfg = config.volume_cfg.as_object().map_or_else(
             || Err("Couldn't retrieve private properties of the storage from json5 config file."),
-            |config| Ok(config),
+            Ok,
         )?;
 
         let access_key = get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY)
@@ -64,32 +85,29 @@ impl S3Config {
                         "Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!"
                     ))
                 },
-                |key| Ok(key),
+                Ok,
             )?;
 
-        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)
-            .map_err(|err| err)?
-            .map_or_else(
-                || {
-                    Err(zerror!(
-                        "Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"
-                    ))
-                },
-                |key| Ok(key),
-            )?;
+        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)?.map_or_else(
+            || {
+                Err(zerror!(
+                    "Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"
+                ))
+            },
+            Ok,
+        )?;
 
-        return Ok(Credentials::new(
+        Ok(Credentials::new(
             access_key,
             secret_key,
             None,
             None,
             DEFAULT_PROVIDER,
-        ));
+        ))
     }
 
-    pub async fn load_region(&self) -> ZResult<Region> {
-        let region_code = self
-            .config
+    async fn load_region(config: &StorageConfig) -> ZResult<Region> {
+        let region_code = config
             .volume_cfg
             .get(PROP_S3_REGION)
             .map_or_else(
@@ -108,21 +126,21 @@ impl S3Config {
                 .await
                 .map_or_else(
                     || Err(zerror!("Unable to load storage region '{region_code}'")),
-                    |region| Ok(region),
+                    Ok,
                 )?;
         Ok(region)
     }
 
-    pub fn load_bucket_name(&self) -> ZResult<String> {
-        Ok(match self.config.volume_cfg.get(PROP_S3_BUCKET) {
+    fn load_bucket_name(config: &StorageConfig) -> ZResult<String> {
+        Ok(match config.volume_cfg.get(PROP_S3_BUCKET) {
             Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
             _ => Err(zerror!("Property '{PROP_S3_BUCKET}' was not specified!")),
         }?)
     }
 
-    pub fn load_path_prefix(&self) -> ZResult<String> {
-        let path_expr = self.config.key_expr.to_owned();
-        let prefix = self.config.strip_prefix.to_owned().map_or_else(
+    fn load_path_prefix(config: &StorageConfig) -> ZResult<String> {
+        let path_expr = config.key_expr.to_owned();
+        let prefix = config.strip_prefix.to_owned().map_or_else(
             || {
                 Err(zerror!(
                     "Property '{PROP_STRIP_PREFIX}' was not specified on the configuration file!"
@@ -142,16 +160,16 @@ impl S3Config {
         }
     }
 
-    pub fn is_read_only(&self) -> ZResult<bool> {
-        match self.config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
+    fn is_read_only(config: &StorageConfig) -> ZResult<bool> {
+        match config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
             None | Some(serde_json::Value::Bool(false)) => Ok(false),
             Some(serde_json::Value::Bool(true)) => Ok(true),
             _ => Err(zerror!("Optional property `{PROP_STORAGE_READ_ONLY}` of s3 storage configurations must be a boolean").into())
         }
     }
 
-    pub fn load_on_closure(&self) -> ZResult<OnClosure> {
-        match self.config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
+    fn load_on_closure(config: &StorageConfig) -> ZResult<OnClosure> {
+        match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
             Some(serde_json::Value::String(s)) if s == "destroy_bucket" => Ok(OnClosure::DestroyBucket),
             Some(serde_json::Value::String(s)) if s == "do_nothing" => Ok(OnClosure::DoNothing),
             None => Ok(OnClosure::DoNothing),
@@ -159,8 +177,8 @@ impl S3Config {
         }
     }
 
-    pub fn create_bucket_is_enabled(&self) -> bool {
-        match self.config.volume_cfg.get(PROP_STORAGE_CREATE_BUCKET) {
+    fn create_bucket_is_enabled(config: &StorageConfig) -> bool {
+        match config.volume_cfg.get(PROP_STORAGE_CREATE_BUCKET) {
             Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
             _ => false,
         }

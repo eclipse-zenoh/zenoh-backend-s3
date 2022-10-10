@@ -17,7 +17,9 @@ use std::fmt;
 use aws_sdk_s3::model::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
-use aws_sdk_s3::output::{CreateBucketOutput, DeleteObjectsOutput, GetObjectOutput};
+use aws_sdk_s3::output::{
+    CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput,
+};
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
 use zenoh::sample::Sample;
@@ -34,8 +36,8 @@ impl S3Client {
     pub async fn new(
         credentials: Credentials,
         region: Region,
-        endpoint: String,
         bucket: String,
+        endpoint: String,
     ) -> Self {
         let sdk_config = aws_config::ConfigLoader::default()
             .endpoint_resolver(Endpoint::immutable(
@@ -73,6 +75,16 @@ impl S3Client {
             .key(key)
             .body(body)
             .set_content_encoding(Some(sample.encoding.to_string()))
+            .send()
+            .await?)
+    }
+
+    pub async fn delete_object(&self, key: String) -> ZResult<DeleteObjectOutput> {
+        Ok(self
+            .client
+            .delete_object()
+            .bucket(self.bucket.to_owned())
+            .key(key)
             .send()
             .await?)
     }
