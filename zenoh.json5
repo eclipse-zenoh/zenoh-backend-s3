@@ -1,88 +1,55 @@
 {
   plugins: {
-    // configuration of "storage_manager" plugin:
+    // Configuration of "storage_manager" plugin:
     storage_manager: {
       volumes: {
         s3: {
+            // Endpoint where the S3 server is located
             url: "http://localhost:9000",
+
             private: {
+                // Credentials for interacting with the S3 volume. They may differ from the storage credentials.
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             }
         }
       },
       storages: {
-        // configuration of a "demo" storage using the S3 volume
-        s3_storage_0: {
-          // the key expression this storage will subscribes to
-          key_expr: "s3/example0/*",
+        // Configuration of a "demo" storage using the S3 volume. Each storage is associated to a
+        // single S3 bucket.
+        s3_storage: {
+
+          // The key expression this storage will subscribes to
+          key_expr: "s3/example/*",
+
           // this prefix will be stripped from the received key when converting to database key.
           // i.e.: "demo/example/a/b" will be stored as "a/b"
-          // this option is optional
-          strip_prefix: "s3/example0",
+          strip_prefix: "s3/example",
+
           volume: {
+            // Id of the volume this storage is associated to
             id: "s3",
-            // if the bucket doesn't exist, create it
+
+            // Bucket to which this storage is associated to
+            bucket: "zenoh-bucket",
+
+            // If the bucket doesn't exist, create it
             create_bucket: true,
-            // bucket name
-            bucket: "zenoh-test-bucket0",
+
             // AWS region to which connect
             region: "eu-west-3",
-            // strategy on storage closure
+
+            // strategy on storage closure, either `destroy_bucket` or `do_nothing`
+            // adminspace.permissions.write needs to be set to true to destroy the bucket on closure
             on_closure: "destroy_bucket",
+
             private: {
+                // Credentials for interacting with the S3 bucket
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             }
           }
         },
-        s3_storage_1: {
-          // the key expression this storage will subscribes to
-          key_expr: "s3/example1/*",
-          // this prefix will be stripped from the received key when converting to database key.
-          // i.e.: "demo/example/a/b" will be stored as "a/b"
-          // this option is optional
-          strip_prefix: "s3/example1",
-          volume: {
-            id: "s3",
-            // if the bucket doesn't exist, create it
-            create_bucket: true,
-            // bucket name
-            bucket: "zenoh-test-bucket1",
-            // AWS region to which connect
-            region: "eu-west-3",
-            // strategy on storage closure
-            on_closure: "destroy_bucket",
-            private: {
-                access_key: "AKIAIOSFODNN7EXAMPLE",
-                secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            }
-          }
-        },
-        s3_storage_2: {
-          // the key expression this storage will subscribes to
-          key_expr: "s3/example2/*",
-          // this prefix will be stripped from the received key when converting to database key.
-          // i.e.: "demo/example/a/b" will be stored as "a/b"
-          // this option is optional
-          strip_prefix: "s3/example2",
-          volume: {
-            id: "s3",
-            // if the bucket doesn't exist, create it
-            create_bucket: true,
-            // bucket name
-            bucket: "zenoh-test-bucket2",
-            // AWS region to which connect
-            region: "eu-west-3",
-            // strategy on storage closure
-            on_closure: "destroy_bucket",
-            private: {
-                access_key: "AKIAIOSFODNN7EXAMPLE",
-                secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            }
-          }
-        },
-        
       }
     },
     // Optionally, add the REST plugin

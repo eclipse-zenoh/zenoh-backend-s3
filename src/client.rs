@@ -26,6 +26,7 @@ use zenoh::sample::Sample;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 
+/// Client to communicate with the S3 storage.
 pub struct S3Client {
     client: Client,
     bucket: String,
@@ -33,6 +34,15 @@ pub struct S3Client {
 }
 
 impl S3Client {
+    /// Creates a new instance of the [S3Client].
+    ///
+    /// # Arguments
+    ///
+    /// * `credentials`: credentials to communicate with the storage
+    /// * `region`: region where the bucket/storage ought to be located
+    /// * `bucket`: name of the bucket/storage
+    /// * `endpoint`: endpoint of the storage, for instance `http://localhost:8080`, it should be
+    ///        indicated in the json5 configuration file.
     pub async fn new(
         credentials: Credentials,
         region: Region,
@@ -56,6 +66,7 @@ impl S3Client {
         }
     }
 
+    /// Retrieves the object associated to the [key] specified.
     pub async fn get_object(&self, key: &str) -> ZResult<GetObjectOutput> {
         Ok(self
             .client
@@ -66,6 +77,8 @@ impl S3Client {
             .await?)
     }
 
+    /// Performs a put operation on the storage on the key specified (which corresponds to the
+    /// name of the file to be created) with the [Sample] provided.
     pub async fn put_object(&self, key: String, sample: Sample) -> ZResult<PutObjectOutput> {
         let body = ByteStream::from(sample.payload.contiguous().to_vec());
         Ok(self
@@ -79,6 +92,7 @@ impl S3Client {
             .await?)
     }
 
+    /// Performs a DELETE operation on the key specified.
     pub async fn delete_object(&self, key: String) -> ZResult<DeleteObjectOutput> {
         Ok(self
             .client
@@ -89,16 +103,7 @@ impl S3Client {
             .await?)
     }
 
-    pub async fn list_objects_in_bucket(&self) -> ZResult<Vec<Object>> {
-        let response = self
-            .client
-            .list_objects_v2()
-            .bucket(self.bucket.to_owned())
-            .send()
-            .await?;
-        Ok(response.contents().unwrap_or_default().to_vec())
-    }
-
+    /// Deletes the specified objects from the bucket.
     pub async fn delete_objects_in_bucket(
         &self,
         objects: Vec<Object>,
@@ -131,7 +136,8 @@ impl S3Client {
             .await?)
     }
 
-    /// Asyncronically creates the bucket associated to this client upon construction.
+    /// Asyncronically creates the bucket associated to this client upon construction on a new
+    /// tokio runtime.
     #[tokio::main]
     pub async fn create_bucket(&self) -> ZResult<CreateBucketOutput> {
         let constraint = BucketLocationConstraint::from(self.region.to_string().as_str());
@@ -147,6 +153,9 @@ impl S3Client {
             .await?)
     }
 
+    /// Deletes the bucket associated to this storage.
+    ///
+    /// In order to fulfill this operation, all the contained files in the bucket are deleted.
     pub async fn delete_bucket(&self) -> ZResult<()> {
         let objects = self.list_objects_in_bucket().await?;
         self.delete_objects_in_bucket(objects).await?;
@@ -157,6 +166,17 @@ impl S3Client {
             .await?;
         log::debug!("Deleted bucket '{}'.", self.bucket.to_owned());
         Ok(())
+    }
+
+    /// Lists all the objects contained in the bucket.
+    async fn list_objects_in_bucket(&self) -> ZResult<Vec<Object>> {
+        let response = self
+            .client
+            .list_objects_v2()
+            .bucket(self.bucket.to_owned())
+            .send()
+            .await?;
+        Ok(response.contents().unwrap_or_default().to_vec())
     }
 }
 
