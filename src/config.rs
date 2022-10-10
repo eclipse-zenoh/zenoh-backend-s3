@@ -37,6 +37,53 @@ pub enum OnClosure {
     DoNothing,
 }
 
+/// Struct to contain all the information necessary for the proper communication with the s3
+/// storage. This information is loaded from a [StorageConfig] instance which contains the
+/// values from the `storages` field on the `.json5` storage configuration file which looks like
+/// follows:
+///
+/// ```
+/// storages: {
+///    s3_storage: {
+///      key_expr: "s3/example/*",
+///      strip_prefix: "s3/example",
+///      volume: {
+///        id: "s3",
+///        create_bucket: true,
+///        bucket: "zenoh-test-bucket",
+///        region: "eu-west-3",
+///        on_closure: "destroy_bucket",
+///        private: {
+///            access_key: "AKIAIOSFODNN7EXAMPLE",
+///            secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+///        }
+///      }
+///    },
+///  }
+/// ```
+///
+/// The fields of the struct have the following purposes:
+///
+/// * credentials: is loaded from the access_key_id and secret_key_id set in the config file which
+///     were previously set in the S3 configuration in order to grant permissions to a user to
+///     perform operations such as read, write, create bucket, delete bucket...
+/// * region: the region in which the bucket is located, for instance `eu-west-3` or `us-east-1`
+///     (see https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.RegionsAndAvailabilityZones.html)
+/// * bucket: name of the bucket the storage is associated to
+/// * path_prefix: the path prefix stated under the `strip_prefix` value of the configuration file.
+///     This prefix needs to match the key expression associated to this storage (otherwise Error
+///     is returned) as it will be used to strip the prefix of the incoming queries. For instance
+///     if we receive a PUT operation on the s3/example/test and the `strip_prefix` value was
+///     s3/example, then the storage will try to perform a PUT operation with /test.
+/// * is_read_only: if the storage is configured to be read only
+/// * on_closure: the operation to be performed on the storage upon destruction, either
+///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
+///     `adminspace.permissions.write` must be set to true for the operation to succeed.
+/// * create_bucket_is_enabled: if true, the storage attempts to create the bucket. If the bucket
+///     was already created then nothing happens and the storage is associated to that preexisting
+///     bucket.
+/// * admin_status: the json value of the [StorageConfig]
+///
 pub struct S3Config {
     pub credentials: Credentials,
     pub region: Region,
@@ -49,6 +96,7 @@ pub struct S3Config {
 }
 
 impl S3Config {
+    /// Creates a new instance of [S3Config] from the StorageConfig passed as a parameter.
     pub async fn new(config: &StorageConfig) -> ZResult<Self> {
         let credentials = S3Config::load_credentials(config)?;
         let region = S3Config::load_region(config).await?;
@@ -139,7 +187,6 @@ impl S3Config {
     }
 
     fn load_path_prefix(config: &StorageConfig) -> ZResult<String> {
-        let path_expr = config.key_expr.to_owned();
         let prefix = config.strip_prefix.to_owned().map_or_else(
             || {
                 Err(zerror!(
@@ -148,6 +195,7 @@ impl S3Config {
             },
             |prefix| Ok(prefix.to_string()),
         )?;
+        let path_expr = config.key_expr.to_owned();
         if !path_expr.starts_with(&prefix) {
             Err(zerror!(
                 r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
@@ -164,16 +212,26 @@ impl S3Config {
         match config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
             None | Some(serde_json::Value::Bool(false)) => Ok(false),
             Some(serde_json::Value::Bool(true)) => Ok(true),
-            _ => Err(zerror!("Optional property `{PROP_STORAGE_READ_ONLY}` of s3 storage configurations must be a boolean").into())
+            _ => Err(zerror!(
+                "Optional property `{PROP_STORAGE_READ_ONLY}` of s3 storage 
+                    configurations must be a boolean"
+            )
+            .into()),
         }
     }
 
     fn load_on_closure(config: &StorageConfig) -> ZResult<OnClosure> {
         match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
-            Some(serde_json::Value::String(s)) if s == "destroy_bucket" => Ok(OnClosure::DestroyBucket),
+            Some(serde_json::Value::String(s)) if s == "destroy_bucket" => {
+                Ok(OnClosure::DestroyBucket)
+            }
             Some(serde_json::Value::String(s)) if s == "do_nothing" => Ok(OnClosure::DoNothing),
             None => Ok(OnClosure::DoNothing),
-            _ => Err(zerror!(r#"Optional property `{PROP_STORAGE_ON_CLOSURE}` of S3 storage configurations must be either "do_nothing" (default) or "destroy_bucket""#).into())
+            _ => Err(zerror!(
+                r#"Optional property `{PROP_STORAGE_ON_CLOSURE}` of S3 storage
+            configurations must be either "do_nothing" (default) or "destroy_bucket""#
+            )
+            .into()),
         }
     }
 
@@ -194,7 +252,9 @@ fn get_private_conf<'a>(
         PrivacyGetResult::Private(serde_json::Value::String(v)) => Ok(Some(v)),
         PrivacyGetResult::Public(serde_json::Value::String(v)) => {
             log::warn!(
-                r#"Value "{}" is given for `{}` publicly (i.e. is visible by anyone who can fetch the router configuration). You may want to replace `{}: "{}"` with `private: {{{}: "{}"}}`"#,
+                r#"Value "{}" is given for `{}` publicly (i.e. is visible by anyone who can fetch
+                the router configuration). You may want to replace `{}: "{}"` with `private: 
+                {{{}: "{}"}}`"#,
                 v,
                 credit,
                 credit,
@@ -209,7 +269,9 @@ fn get_private_conf<'a>(
             private: serde_json::Value::String(private),
         } => {
             log::warn!(
-                r#"Value "{}" is given for `{}` publicly, but a private value also exists. The private value will be used, but the public value, which is {} the same as the private one, will still be visible in configurations."#,
+                r#"Value "{}" is given for `{}` publicly, but a private value also exists. 
+                The private value will be used, but the public value, which is {} the same as
+                 the private one, will still be visible in configurations."#,
                 public,
                 credit,
                 if public == private { "" } else { "not " }
