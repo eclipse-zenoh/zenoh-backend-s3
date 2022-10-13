@@ -16,7 +16,7 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::{Credentials, Region};
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
-use zenoh_core::{bail, zerror};
+use zenoh_core::zerror;
 
 // Properties used by the Backend
 const PROP_S3_ACCESS_KEY: &str = "access_key";
@@ -120,30 +120,16 @@ impl S3Config {
     }
 
     fn load_credentials(config: &StorageConfig) -> ZResult<Credentials> {
-        let volume_cfg = config.volume_cfg.as_object().map_or_else(
-            || Err("Couldn't retrieve private properties of the storage from json5 config file."),
-            Ok,
-        )?;
+        let volume_cfg = config.volume_cfg.as_object().ok_or_else(|| {
+            zerror!("Couldn't retrieve private properties of the storage from json5 config file.")
+        })?;
 
         let access_key = get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY)
             .map_err(|err| zerror!("Could not load '{}': {}", PROP_S3_ACCESS_KEY, err))?
-            .map_or_else(
-                || {
-                    Err(zerror!(
-                        "Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!"
-                    ))
-                },
-                Ok,
-            )?;
+            .ok_or_else(|| zerror!("Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!"))?;
 
-        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)?.map_or_else(
-            || {
-                Err(zerror!(
-                    "Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"
-                ))
-            },
-            Ok,
-        )?;
+        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)?
+            .ok_or_else(|| zerror!("Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"))?;
 
         Ok(Credentials::new(
             access_key,
@@ -158,24 +144,16 @@ impl S3Config {
         let region_code = config
             .volume_cfg
             .get(PROP_S3_REGION)
-            .map_or_else(
-                || {
-                    Err(zerror!(
-                        "Property '{PROP_S3_REGION}' was not specified on the configuration file!"
-                    ))
-                },
-                |region| Ok(region.to_string()),
-            )
-            .map_err(|err| zerror!("Unable to load storage region: {err}"))?;
+            .ok_or_else(|| {
+                zerror!("Property '{PROP_S3_REGION}' was not specified on the configuration file!")
+            })?
+            .to_string();
 
         let region =
             RegionProviderChain::first_try(aws_sdk_s3::Region::new(region_code.to_owned()))
                 .region()
                 .await
-                .map_or_else(
-                    || Err(zerror!("Unable to load storage region '{region_code}'")),
-                    Ok,
-                )?;
+                .ok_or_else(|| zerror!("Unable to load storage region '{region_code}'"))?;
         Ok(region)
     }
 
@@ -187,14 +165,15 @@ impl S3Config {
     }
 
     fn load_path_prefix(config: &StorageConfig) -> ZResult<String> {
-        let prefix = config.strip_prefix.to_owned().map_or_else(
-            || {
-                Err(zerror!(
+        let prefix = config
+            .strip_prefix
+            .to_owned()
+            .ok_or_else(|| {
+                zerror!(
                     "Property '{PROP_STRIP_PREFIX}' was not specified on the configuration file!"
-                ))
-            },
-            |prefix| Ok(prefix.to_string()),
-        )?;
+                )
+            })?
+            .to_string();
         let path_expr = config.key_expr.to_owned();
         if !path_expr.starts_with(&prefix) {
             Err(zerror!(
@@ -278,8 +257,6 @@ fn get_private_conf<'a>(
             );
             Ok(Some(private))
         }
-        _ => {
-            bail!("Optional property `{}` must be a string", credit)
-        }
+        _ => Err(zerror!("Optional property `{}` must be a string", credit))?,
     }
 }

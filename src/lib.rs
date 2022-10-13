@@ -36,6 +36,10 @@ use crate::config::S3Config;
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 
+// Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
+// operations. 
+const STORAGE_WORKER_THREADS: usize = 2;
+
 const GIT_VERSION: &str = git_version::git_version!(prefix = "v", cargo_prefix = "v");
 lazy_static::lazy_static! {
     static ref LONG_VERSION: String = format!("{} built with {}", GIT_VERSION, env!("RUSTC_VERSION"));
@@ -55,14 +59,17 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
         .rest
         .insert("version".into(), LONG_VERSION.clone().into());
 
-    let endpoint = match config.rest.get(PROP_S3_ENDPOINT) {
-        Some(serde_json::Value::String(endpoint)) => endpoint.clone(),
-        _ => {
-            bail!(
-                "Mandatory property `{}` for S3 Backend must be a string",
-                PROP_S3_ENDPOINT
-            )
-        }
+    let endpoint = match config.rest.get(PROP_S3_ENDPOINT).ok_or_else(|| {
+        zerror!(
+            "Mandatory property `{}` for S3 Backend not provided",
+            PROP_S3_ENDPOINT
+        )
+    })? {
+        serde_json::Value::String(endpoint) => endpoint.clone(),
+        _ => bail!(
+            "Mandatory property `{}` for S3 Backend must be a string",
+            PROP_S3_ENDPOINT
+        ),
     };
 
     let mut properties = Properties::default();
@@ -110,20 +117,17 @@ impl Volume for S3Backend {
             }
         }
 
-        let storage_runtime = match tokio::runtime::Builder::new_multi_thread()
+        let storage_runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(STORAGE_WORKER_THREADS)
             .enable_all()
             .build()
-        {
-            Ok(runtime) => {
-                log::debug!("Tokio runtime created for storage operations.");
-                runtime
-            }
-            Err(err) => bail!(err),
-        };
+            .map_err(|e| zerror!(e))?;
+
+        log::debug!("Tokio runtime created for storage operations.");
 
         Ok(Box::new(S3Storage {
             config,
-            client,
+            client: Arc::new(client),
             runtime: storage_runtime,
         }))
     }
@@ -139,7 +143,7 @@ impl Volume for S3Backend {
 
 struct S3Storage {
     config: S3Config,
-    client: S3Client,
+    client: Arc<S3Client>,
     runtime: tokio::runtime::Runtime,
 }
 
@@ -171,12 +175,13 @@ impl Storage for S3Storage {
         match sample.kind {
             SampleKind::Put => {
                 if !self.config.is_read_only {
+                    let client2 = self.client.clone();
+                    let sample2 = sample.to_owned();
+                    let key2 = key.to_owned();
                     self.runtime
-                        .block_on(async {
-                            self.client
-                                .put_object(key.to_string(), sample.to_owned())
-                                .await
-                        })
+                        .spawn(async move { client2.put_object(key2, sample2).await })
+                        .await
+                        .map_err(|e| zerror!("Put operation failed: {e}"))?
                         .map_err(|e| zerror!("Put operation failed: {e}"))?;
                     Ok(StorageInsertionResult::Inserted)
                 } else {
@@ -186,19 +191,15 @@ impl Storage for S3Storage {
             }
             SampleKind::Delete => {
                 if !self.config.is_read_only {
-                    match self
-                        .runtime
-                        .block_on(async { self.client.delete_object(key.to_string()).await })
-                    {
-                        Ok(_) => Ok(StorageInsertionResult::Deleted),
-                        Err(err) => {
-                            let error_msg = format!(
-                                "Delete operation on bucket '{:?}' failed: {}",
-                                self.client, err
-                            );
-                            Err(error_msg.into())
-                        }
-                    }
+                    let client2 = self.client.clone();
+                    let key2 = key.to_owned();
+
+                    self.runtime
+                        .spawn(async move { client2.delete_object(key2.to_string()).await })
+                        .await
+                        .map_err(|e| zerror!("Delete operation failed: {e}"))?
+                        .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+                    Ok(StorageInsertionResult::Deleted)
                 } else {
                     log::warn!("Received DELETE for read-only DB on {:?} - ignored", key);
                     Err("Received update for read-only DB".into())
@@ -225,73 +226,77 @@ impl Storage for S3Storage {
             self.client
         );
 
-        match self
+        let client2 = self.client.clone();
+        let key2 = key.to_owned();
+
+        let output_result = self
             .runtime
-            .block_on(async { self.client.get_object(key).await })
-        {
-            Ok(result) => {
-                let encoding = result.content_encoding().map(|x| x.to_string());
-                match result.body.collect().await.map(|data| data.into_bytes()) {
-                    Ok(bytes) => {
-                        let value = match encoding {
-                            Some(encoding) => match Encoding::try_from(encoding) {
-                                Ok(encoding) => Value::from(Vec::from(bytes)).encoding(encoding),
-                                Err(_) => Value::from(Vec::from(bytes)),
-                            },
-                            None => Value::from(Vec::from(bytes)),
-                        };
-                        query
-                            .reply(Sample::new(query.key_expr().clone(), value))
-                            .res()
-                            .await
-                    }
-                    Err(_) => Err("Failure parsing content".into()),
-                }
-            }
-            Err(err) => {
-                log::debug!(
-                    "Query operation on bucket '{:?}' for key '{}' failed: '{}'",
-                    self.client,
-                    key,
-                    err
-                );
-                Err(err)
-            }
-        }
+            .spawn(async move { client2.get_object(key2.as_str()).await })
+            .await
+            .map_err(|e| zerror!("Get operation failed: {e}"))?
+            .map_err(|e| zerror!("Get operation failed: {e}"))?;
+
+        let encoding = output_result.content_encoding().map(|x| x.to_string());
+        let bytes = output_result
+            .body
+            .collect()
+            .await
+            .map(|data| data.into_bytes())
+            .map_err(|e| {
+                zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
+            })?;
+
+        let encoding = match encoding {
+            Some(value) => Encoding::try_from(value).map_or_else(
+                |_| Value::from(Vec::from(bytes.to_owned())),
+                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
+            ),
+            None => Value::from(Vec::from(bytes)),
+        };
+
+        Ok(query
+            .reply(Sample::new(query.key_expr().clone(), encoding))
+            .res()
+            .await
+            .map_err(|e| zerror!("{e}"))?)
     }
 
     // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/1): create
     // mechanism to store the Timestamp id and time on the bucket files in
     // order to retrieve them here below.
     async fn get_all_entries(&self) -> ZResult<Vec<(OwnedKeyExpr, Timestamp)>> {
-        todo!(
+        log::debug!(
             "Issue 'https://github.com/DariusIMP/zenoh-backend-s3/issues/1' 
         needs to be solved first before being able to retrieve all the entries."
         );
+        Err("Could not retrieve all entries from storage.".into())
     }
 }
 
-///
 impl Drop for S3Storage {
     fn drop(&mut self) {
-        async_std::task::block_on(async move {
-            //TODO: task::spawn vs task::block_on
-            match self.config.on_closure {
-                config::OnClosure::DestroyBucket => match self.client.delete_bucket().await {
-                    Ok(_) => log::debug!("Closing S3 storage {:?}", self.client),
-                    Err(err) => log::debug!(
-                        "Error while closing S3 storage {:?}: {}",
-                        self.client,
-                        err.to_string()
-                    ),
-                },
-                config::OnClosure::DoNothing => {
-                    log::debug!(
-                        "Close S3 storage, keeping bucket '{:?}' as it is.",
-                        self.client
+        match self.config.on_closure {
+            config::OnClosure::DestroyBucket => {
+                let client2 = self.client.clone();
+                async_std::task::spawn(async move {
+                    client2.delete_bucket().await.map_or_else(
+                        |e| {
+                            log::debug!(
+                                "Error while closing S3 storage {:?}: {}",
+                                client2,
+                                e.to_string()
+                            )
+                        },
+                        |_| log::debug!("Closing S3 storage {:?}", client2),
                     );
-                }
+                });
             }
-        });
+            config::OnClosure::DoNothing => {
+                log::debug!(
+                    "Close S3 storage, keeping bucket '{:?}' as it is.",
+                    self.client
+                );
+            }
+        }
     }
 }
