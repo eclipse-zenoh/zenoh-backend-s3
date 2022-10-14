@@ -31,27 +31,20 @@
             id: "s3",
 
             // Bucket to which this storage is associated to
-            bucket: "zenoh-pepito",
+            bucket: "zenoh-bucket",
 
-            // Strategy on storage creation. The options are:
-            // - "create_bucket": attempts to create the bucket, will fail if the bucket already
-            //      exists, independently of the ownership of it.
-            // - "associate_bucket": associates the storage to a preexisting bucket
-            // - "create_or_associate_bucket": if the creation fails because the bucket already 
-            //      exists but it's a bucket you can associate to this storage with the credentials
-            //      provided (because it's already owned by you), then the storage gets associated
-            //      to it
-            on_creation: "create_or_associate_bucket",
-
-            // Strategy on storage closure, either `destroy_bucket` or `do_nothing`
-            // adminspace.permissions.write needs to be set to true to destroy the bucket on closure
-            on_closure: "destroy_bucket",
+            // If the bucket doesn't exist, create it
+            create_bucket: true,
 
             // AWS region to which connect
             region: "eu-west-3",
 
             // If the storage is read only, it will only handle GET requests
             read_only: false,
+
+            // strategy on storage closure, either `destroy_bucket` or `do_nothing`
+            // adminspace.permissions.write needs to be set to true to destroy the bucket on closure
+            on_closure: "destroy_bucket",
 
             private: {
                 // Credentials for interacting with the S3 bucket

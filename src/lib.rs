@@ -37,7 +37,7 @@ use crate::config::S3Config;
 pub const PROP_S3_ENDPOINT: &str = "url";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
-// operations.
+// operations. 
 const STORAGE_WORKER_THREADS: usize = 2;
 
 const GIT_VERSION: &str = git_version::git_version!(prefix = "v", cargo_prefix = "v");
@@ -110,33 +110,11 @@ impl Volume for S3Backend {
         )
         .await;
 
-        if matches!(config.on_creation, config::OnCreation::CreateBucket) {
-            client
-                .create_bucket()
-                .map_err(|e| {
-                    zerror!(
-                        "Unable to create bucket '{}': '{}'.",
-                        config.bucket.to_owned(),
-                        e
-                    )
-                })
-                .map(|_| log::debug!("Bucket created."))?;
-        }
-
-        if matches!(config.on_creation, config::OnCreation::AssociateBucket) {
-            client.verify_bucket_ownership()?
-        }
-
-        if matches!(
-            config.on_creation,
-            config::OnCreation::CreateOrAssociateBucket
-        ) {
-            client
-                .create_or_associate_bucket()
-                .map_err(|e| zerror!("Failed to create or associate bucket to a previously owned and existing one: {e}"))?
-                .map_or_else(
-                    || log::debug!("Bucket already existing and owned by you."),
-                    |_| log::debug!("Bucket created."));
+        if config.create_bucket_is_enabled {
+            let create_bucket_result = client.create_bucket();
+            if create_bucket_result.is_err() {
+                log::debug!("{}", create_bucket_result.unwrap_err().to_string());
+            }
         }
 
         let storage_runtime = tokio::runtime::Builder::new_multi_thread()

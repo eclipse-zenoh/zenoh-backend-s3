@@ -25,18 +25,12 @@ const PROP_S3_REGION: &str = "region";
 const PROP_S3_SECRET_KEY: &str = "secret_key";
 
 // Properties used by the Storage
+const PROP_STORAGE_CREATE_BUCKET: &str = "create_bucket";
 const PROP_STORAGE_READ_ONLY: &str = "read_only";
-const PROP_STORAGE_ON_CREATION: &str = "on_creation";
 const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 const PROP_STRIP_PREFIX: &str = "strip_prefix";
 
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
-
-pub enum OnCreation {
-    CreateBucket,
-    AssociateBucket,
-    CreateOrAssociateBucket,
-}
 
 pub enum OnClosure {
     DestroyBucket,
@@ -96,9 +90,9 @@ pub struct S3Config {
     pub bucket: String,
     pub path_prefix: String,
     pub is_read_only: bool,
-    pub on_creation: OnCreation,
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
+    pub create_bucket_is_enabled: bool,
 }
 
 impl S3Config {
@@ -109,8 +103,8 @@ impl S3Config {
         let path_prefix = S3Config::load_path_prefix(config)?;
         let bucket = S3Config::load_bucket_name(config)?;
         let is_read_only = S3Config::is_read_only(config)?;
-        let on_creation = S3Config::load_on_creation(config)?;
         let on_closure = S3Config::load_on_closure(config)?;
+        let create_bucket_is_enabled = S3Config::create_bucket_is_enabled(config);
         let admin_status = config.to_json_value();
 
         Ok(S3Config {
@@ -119,9 +113,9 @@ impl S3Config {
             bucket,
             path_prefix,
             is_read_only,
-            on_creation,
             on_closure,
             admin_status,
+            create_bucket_is_enabled,
         })
     }
 
@@ -205,25 +199,6 @@ impl S3Config {
         }
     }
 
-    fn load_on_creation(config: &StorageConfig) -> ZResult<OnCreation> {
-        match config.volume_cfg.get(PROP_STORAGE_ON_CREATION) {
-            Some(serde_json::Value::String(s)) if s == "create_bucket" => {
-                Ok(OnCreation::CreateBucket)
-            }
-            Some(serde_json::Value::String(s)) if s == "associate_bucket" => {
-                Ok(OnCreation::AssociateBucket)
-            }
-            Some(serde_json::Value::String(s)) if s == "create_or_associate_bucket" => {
-                Ok(OnCreation::CreateOrAssociateBucket)
-            }
-            _ => Err(zerror!(
-                r#"Property `{PROP_STORAGE_ON_CREATION}` of S3 storage configurations
-            must be either "create_bucket", "associate_bucket" or "create_or_associate_bucket""#
-            )
-            .into()),
-        }
-    }
-
     fn load_on_closure(config: &StorageConfig) -> ZResult<OnClosure> {
         match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
             Some(serde_json::Value::String(s)) if s == "destroy_bucket" => {
@@ -236,6 +211,13 @@ impl S3Config {
             configurations must be either "do_nothing" (default) or "destroy_bucket""#
             )
             .into()),
+        }
+    }
+
+    fn create_bucket_is_enabled(config: &StorageConfig) -> bool {
+        match config.volume_cfg.get(PROP_STORAGE_CREATE_BUCKET) {
+            Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
+            _ => false,
         }
     }
 }
