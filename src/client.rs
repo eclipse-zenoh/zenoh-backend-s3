@@ -14,23 +14,28 @@
 
 use std::fmt;
 
+use aws_sdk_s3::error::CreateBucketError;
 use aws_sdk_s3::model::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
 use aws_sdk_s3::output::{
     CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput,
 };
+use aws_sdk_s3::types::SdkError;
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
+use aws_smithy_http::operation::Response;
 use zenoh::sample::Sample;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
+use zenoh_core::zerror;
 
 /// Client to communicate with the S3 storage.
 pub struct S3Client {
     client: Client,
     bucket: String,
     region: Region,
+    credentials: Credentials,
 }
 
 impl S3Client {
@@ -54,7 +59,7 @@ impl S3Client {
                 endpoint.parse().expect("Invalid endpoint: "),
             ))
             .region(region.to_owned())
-            .credentials_provider(credentials)
+            .credentials_provider(credentials.to_owned())
             .load()
             .await;
 
@@ -63,6 +68,7 @@ impl S3Client {
             client,
             bucket: bucket.to_string(),
             region,
+            credentials,
         }
     }
 
@@ -140,17 +146,52 @@ impl S3Client {
     /// tokio runtime.
     #[tokio::main]
     pub async fn create_bucket(&self) -> ZResult<CreateBucketOutput> {
-        let constraint = BucketLocationConstraint::from(self.region.to_string().as_str());
-        let cfg = CreateBucketConfiguration::builder()
-            .location_constraint(constraint)
-            .build();
-        Ok(self
+        Ok(self.send_create_bucket_request().await?)
+    }
+
+    /// Asyncronically creates the bucket associated to this client upon construction on a new
+    /// tokio runtime. If the creation failed because the bucket already exists but it's a bucket
+    /// that is already owned by the client, then returns `Ok(None)` instead of a [ZError].
+    #[tokio::main]
+    pub async fn create_or_associate_bucket(&self) -> ZResult<Option<CreateBucketOutput>> {
+        let result = self.send_create_bucket_request().await;
+        match result {
+            Ok(output) => Ok(Some(output)),
+            Err(aws_sdk_s3::types::SdkError::ServiceError { err, raw }) => {
+                if err.is_bucket_already_owned_by_you() {
+                    return Ok(None);
+                };
+                Err(zerror!("Couldn't associate bucket '{self:?}': {raw:?}").into())
+            }
+            _ => Err(zerror!("Couldn't create or associate bucket '{self:?}'.").into()),
+        }
+    }
+
+    /// Asyncronically verifies if the bucket associated to this client is owned by it.
+    /// Returns `Ok(())` if the bucket is owned by the client, otherwise a `ZError` is returned.
+    #[tokio::main]
+    pub async fn verify_bucket_ownership(&self) -> ZResult<()> {
+        let result = self
             .client
-            .create_bucket()
-            .create_bucket_configuration(cfg)
+            .get_bucket_ownership_controls()
             .bucket(self.bucket.to_owned())
+            .expected_bucket_owner(self.credentials.access_key_id())
             .send()
-            .await?)
+            .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(aws_sdk_s3::types::SdkError::ServiceError { err, raw }) => match err.code() {
+                Some("403") => Err(zerror!(
+                    "The bucket '{self:?} is owned by a different account: {raw:?}"
+                )
+                .into()),
+                _ => {
+                    Err(zerror!("Unable to verify bucket ownership for {self:?}: {raw:?}.").into())
+                }
+            },
+            Err(e) => Err(zerror!("Unable to verify bucket ownership for {self:?}: {e}.").into()),
+        }
     }
 
     /// Deletes the bucket associated to this storage.
@@ -177,6 +218,21 @@ impl S3Client {
             .send()
             .await?;
         Ok(response.contents().unwrap_or_default().to_vec())
+    }
+
+    async fn send_create_bucket_request(
+        &self,
+    ) -> Result<CreateBucketOutput, SdkError<CreateBucketError, Response>> {
+        let constraint = BucketLocationConstraint::from(self.region.to_string().as_str());
+        let cfg = CreateBucketConfiguration::builder()
+            .location_constraint(constraint)
+            .build();
+        self.client
+            .create_bucket()
+            .create_bucket_configuration(cfg)
+            .bucket(self.bucket.to_owned())
+            .send()
+            .await
     }
 }
 
