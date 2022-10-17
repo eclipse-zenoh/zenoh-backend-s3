@@ -25,6 +25,7 @@ use aws_sdk_s3::{Credentials, Endpoint, Region};
 use zenoh::sample::Sample;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
+use zenoh_core::zerror;
 
 /// Client to communicate with the S3 storage.
 pub struct S3Client {
@@ -138,19 +139,35 @@ impl S3Client {
 
     /// Asyncronically creates the bucket associated to this client upon construction on a new
     /// tokio runtime.
+    /// Returns:
+    /// - Ok(Some(CreateBucketOutput)) in case the bucket was successfully created
+    /// - Ok(Some(None)) in case the `reuse_bucket` parameter is true and the bucket already exists
+    ///     and is owned by you
+    /// - Error in any other case
     #[tokio::main]
-    pub async fn create_bucket(&self) -> ZResult<CreateBucketOutput> {
+    pub async fn create_bucket(&self, reuse_bucket: bool) -> ZResult<Option<CreateBucketOutput>> {
         let constraint = BucketLocationConstraint::from(self.region.to_string().as_str());
         let cfg = CreateBucketConfiguration::builder()
             .location_constraint(constraint)
             .build();
-        Ok(self
+        let result = self
             .client
             .create_bucket()
             .create_bucket_configuration(cfg)
             .bucket(self.bucket.to_owned())
             .send()
-            .await?)
+            .await;
+
+        match result {
+            Ok(output) => Ok(Some(output)),
+            Err(aws_sdk_s3::types::SdkError::ServiceError { err, raw }) => {
+                if err.is_bucket_already_owned_by_you() && reuse_bucket {
+                    return Ok(None);
+                };
+                Err(zerror!("Couldn't associate bucket '{self}': {raw:?}").into())
+            }
+            _ => Err(zerror!("Couldn't create or associate bucket '{self}'.").into()),
+        }
     }
 
     /// Deletes the bucket associated to this storage.
@@ -180,10 +197,10 @@ impl S3Client {
     }
 }
 
-impl fmt::Debug for S3Client {
+impl std::fmt::Display for S3Client {
     // It's sufficient to display the bucket name as we only have a single
     // bucket and a single storage for each client.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("").field(&self.bucket).finish()
+        write!(f, "{}", self.bucket)
     }
 }

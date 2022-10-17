@@ -37,7 +37,7 @@ use crate::config::S3Config;
 pub const PROP_S3_ENDPOINT: &str = "url";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
-// operations. 
+// operations.
 const STORAGE_WORKER_THREADS: usize = 2;
 
 const GIT_VERSION: &str = git_version::git_version!(prefix = "v", cargo_prefix = "v");
@@ -110,12 +110,13 @@ impl Volume for S3Backend {
         )
         .await;
 
-        if config.create_bucket_is_enabled {
-            let create_bucket_result = client.create_bucket();
-            if create_bucket_result.is_err() {
-                log::debug!("{}", create_bucket_result.unwrap_err().to_string());
-            }
-        }
+        client
+            .create_bucket(config.reuse_bucket_is_enabled)
+            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+            .map_or_else(
+                || log::debug!("Reusing existing bucket '{}'.", client),
+                |_| log::debug!("Bucket '{}' successfully created.", client),
+            );
 
         let storage_runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(STORAGE_WORKER_THREADS)
@@ -156,7 +157,7 @@ impl Storage for S3Storage {
     // When receiving a Sample (i.e. on PUT or DELETE operations)
     async fn on_sample(&mut self, sample: Sample) -> ZResult<StorageInsertionResult> {
         log::debug!(
-            "'{}' called on client {:?}. Key: '{}'",
+            "'{}' called on client {}. Key: '{}'",
             sample.kind,
             self.client,
             sample.key_expr
@@ -221,7 +222,7 @@ impl Storage for S3Storage {
             })?;
 
         log::debug!(
-            "Query operation received for '{}' on bucket '{:?}'.",
+            "Query operation received for '{}' on bucket '{}'.",
             query.key_expr().as_str(),
             self.client
         );
@@ -282,18 +283,18 @@ impl Drop for S3Storage {
                     client2.delete_bucket().await.map_or_else(
                         |e| {
                             log::debug!(
-                                "Error while closing S3 storage {:?}: {}",
+                                "Error while closing S3 storage '{}': {}",
                                 client2,
                                 e.to_string()
                             )
                         },
-                        |_| log::debug!("Closing S3 storage {:?}", client2),
+                        |_| log::debug!("Closing S3 storage '{}'", client2),
                     );
                 });
             }
             config::OnClosure::DoNothing => {
                 log::debug!(
-                    "Close S3 storage, keeping bucket '{:?}' as it is.",
+                    "Close S3 storage, keeping bucket '{}' as it is.",
                     self.client
                 );
             }

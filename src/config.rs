@@ -25,7 +25,7 @@ const PROP_S3_REGION: &str = "region";
 const PROP_S3_SECRET_KEY: &str = "secret_key";
 
 // Properties used by the Storage
-const PROP_STORAGE_CREATE_BUCKET: &str = "create_bucket";
+const PROP_STORAGE_REUSE_BUCKET: &str = "reuse_bucket";
 const PROP_STORAGE_READ_ONLY: &str = "read_only";
 const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 const PROP_STRIP_PREFIX: &str = "strip_prefix";
@@ -49,7 +49,7 @@ pub enum OnClosure {
 ///      strip_prefix: "s3/example",
 ///      volume: {
 ///        id: "s3",
-///        create_bucket: true,
+///        reuse_bucket: true,
 ///        bucket: "zenoh-test-bucket",
 ///        region: "eu-west-3",
 ///        on_closure: "destroy_bucket",
@@ -79,9 +79,8 @@ pub enum OnClosure {
 /// * on_closure: the operation to be performed on the storage upon destruction, either
 ///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
 ///     `adminspace.permissions.write` must be set to true for the operation to succeed.
-/// * create_bucket_is_enabled: if true, the storage attempts to create the bucket. If the bucket
-///     was already created then nothing happens and the storage is associated to that preexisting
-///     bucket.
+/// * reuse_bucket_is_enabled: the storage attempts to create the bucket and if the bucket
+///     was already created then the storage is associated to that preexisting bucket.
 /// * admin_status: the json value of the [StorageConfig]
 ///
 pub struct S3Config {
@@ -92,7 +91,7 @@ pub struct S3Config {
     pub is_read_only: bool,
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
-    pub create_bucket_is_enabled: bool,
+    pub reuse_bucket_is_enabled: bool,
 }
 
 impl S3Config {
@@ -104,7 +103,7 @@ impl S3Config {
         let bucket = S3Config::load_bucket_name(config)?;
         let is_read_only = S3Config::is_read_only(config)?;
         let on_closure = S3Config::load_on_closure(config)?;
-        let create_bucket_is_enabled = S3Config::create_bucket_is_enabled(config);
+        let reuse_bucket_is_enabled = S3Config::reuse_bucket_is_enabled(config);
         let admin_status = config.to_json_value();
 
         Ok(S3Config {
@@ -115,7 +114,7 @@ impl S3Config {
             is_read_only,
             on_closure,
             admin_status,
-            create_bucket_is_enabled,
+            reuse_bucket_is_enabled,
         })
     }
 
@@ -214,8 +213,8 @@ impl S3Config {
         }
     }
 
-    fn create_bucket_is_enabled(config: &StorageConfig) -> bool {
-        match config.volume_cfg.get(PROP_STORAGE_CREATE_BUCKET) {
+    fn reuse_bucket_is_enabled(config: &StorageConfig) -> bool {
+        match config.volume_cfg.get(PROP_STORAGE_REUSE_BUCKET) {
             Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
             _ => false,
         }

@@ -79,8 +79,10 @@ If successful, then the console can be accessed on http://localhost:9090.
                 // Bucket to which this storage is associated to
                 bucket: "zenoh-bucket",
 
-                // If the bucket doesn't exist, create it
-                create_bucket: true,
+                // The storage attempts to create the bucket, but if the bucket already exists and is
+                // owned by you, then with 'reuse_bucket' you can associate that preexisting bucket to
+                // the storage, otherwise it will fail.
+                reuse_bucket: true,
 
                 // AWS region to which connect
                 region: "eu-west-3",
