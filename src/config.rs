@@ -79,10 +79,10 @@ pub enum OnClosure {
 /// * on_closure: the operation to be performed on the storage upon destruction, either
 ///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
 ///     `adminspace.permissions.write` must be set to true for the operation to succeed.
-/// * reuse_bucket_is_enabled: the storage attempts to create the bucket and if the bucket
-///     was already created then the storage is associated to that preexisting bucket.
+/// * reuse_bucket_is_enabled: the storage attempts to create the bucket but if the bucket
+///     was already created and is owned by you then the storage is associated to that preexisting
+///     bucket.
 /// * admin_status: the json value of the [StorageConfig]
-///
 pub struct S3Config {
     pub credentials: Credentials,
     pub region: Region,
