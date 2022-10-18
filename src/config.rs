@@ -16,7 +16,7 @@ use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::{Credentials, Region};
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
-use zenoh_core::zerror;
+use zenoh_core::{zerror, bail};
 
 // Properties used by the Backend
 const PROP_S3_ACCESS_KEY: &str = "access_key";
@@ -140,14 +140,18 @@ impl S3Config {
     }
 
     async fn load_region(config: &StorageConfig) -> ZResult<Region> {
-        let region_code = config
-            .volume_cfg
-            .get(PROP_S3_REGION)
-            .ok_or_else(|| {
-                zerror!("Property '{PROP_S3_REGION}' was not specified on the configuration file!")
-            })?
-            .to_string();
-
+        let region_code = match config
+                    .volume_cfg
+                    .get(PROP_S3_REGION)
+                    .ok_or_else(|| {
+                        zerror!("Property '{PROP_S3_REGION}' was not specified on the configuration file!")
+                    })? {
+            serde_json::Value::String(region) => region.clone(),
+            _ => bail!(
+                "Mandatory property `{}` for S3 Backend must be a string",
+                PROP_S3_REGION
+            ),
+        };
         let region =
             RegionProviderChain::first_try(aws_sdk_s3::Region::new(region_code.to_owned()))
                 .region()
