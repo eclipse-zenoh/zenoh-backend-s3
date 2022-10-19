@@ -4,8 +4,14 @@
     storage_manager: {
       volumes: {
         s3: {
-            // Endpoint where the S3 server is located
-            url: "http://localhost:9000",
+
+            // Endpoint where the AWS S3 server is located (https://docs.aws.amazon.com/general/latest/gr/s3.html)
+            // This parameter is optional, if not specified then the AWS endpoint resolver will 
+            // provide an endpoint based on the region specified.
+            //
+            // This parameter can also be a custom endpoint in case you want to use a MinIO 
+            // instance instead of the Amazon S3 service.
+            url: "https://s3.eu-west-1.amazonaws.com",
 
             private: {
                 // Credentials for interacting with the S3 volume. They may differ from the storage credentials.

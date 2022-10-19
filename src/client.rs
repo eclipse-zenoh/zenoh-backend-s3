@@ -42,24 +42,34 @@ impl S3Client {
     /// * `credentials`: credentials to communicate with the storage
     /// * `region`: region where the bucket/storage ought to be located
     /// * `bucket`: name of the bucket/storage
-    /// * `endpoint`: endpoint of the storage, for instance `http://localhost:8080`, it should be
-    ///        indicated in the json5 configuration file.
+    /// * `endpoint`: the endpoint where the storage is located, either an AWS endpoint
+    ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
+    ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
+    ///     to retrieve the endpoint based on the specified region.
     pub async fn new(
         credentials: Credentials,
         region: Region,
         bucket: String,
-        endpoint: String,
+        endpoint: Option<String>,
     ) -> Self {
-        let sdk_config = aws_config::ConfigLoader::default()
-            .endpoint_resolver(Endpoint::immutable(
-                endpoint.parse().expect("Invalid endpoint: "),
-            ))
+        let mut config_loader = aws_config::ConfigLoader::default()
             .region(region.to_owned())
-            .credentials_provider(credentials)
-            .load()
-            .await;
+            .credentials_provider(credentials);
 
-        let client = Client::new(&sdk_config);
+        config_loader = match endpoint {
+            Some(endpoint) => {
+                log::debug!("Loading endpoint '{endpoint}'.");
+                config_loader.endpoint_resolver(Endpoint::immutable(
+                    endpoint.parse().expect("Invalid endpoint: "),
+                ))
+            }
+            None => {
+                log::debug!("Using AWS default endpoint.");
+                config_loader
+            }
+        };
+
+        let client = Client::new(&config_loader.load().await);
         S3Client {
             client,
             bucket: bucket.to_string(),

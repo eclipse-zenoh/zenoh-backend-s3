@@ -59,17 +59,13 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
         .rest
         .insert("version".into(), LONG_VERSION.clone().into());
 
-    let endpoint = match config.rest.get(PROP_S3_ENDPOINT).ok_or_else(|| {
-        zerror!(
-            "Mandatory property `{}` for S3 Backend not provided",
-            PROP_S3_ENDPOINT
-        )
-    })? {
-        serde_json::Value::String(endpoint) => endpoint.clone(),
-        _ => bail!(
-            "Mandatory property `{}` for S3 Backend must be a string",
-            PROP_S3_ENDPOINT
-        ),
+    let endpoint = match config.rest.get(PROP_S3_ENDPOINT) {
+        Some(serde_json::Value::String(endpoint)) => Some(endpoint.clone()),
+        None => {
+            log::debug!("Property '{PROP_S3_ENDPOINT}' was not specified. ");
+            None
+        }
+        _ => bail!("Property '{PROP_S3_ENDPOINT}' for S3 Backend must be a string."),
     };
 
     let mut properties = Properties::default();
@@ -89,7 +85,7 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
 
 pub struct S3Backend {
     admin_status: serde_json::Value,
-    endpoint: String,
+    endpoint: Option<String>,
 }
 
 #[async_trait]
