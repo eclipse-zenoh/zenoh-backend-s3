@@ -31,7 +31,7 @@ use zenoh_core::zerror;
 pub struct S3Client {
     client: Client,
     bucket: String,
-    region: Region,
+    region: Option<String>,
 }
 
 impl S3Client {
@@ -40,36 +40,41 @@ impl S3Client {
     /// # Arguments
     ///
     /// * `credentials`: credentials to communicate with the storage
-    /// * `region`: region where the bucket/storage ought to be located
     /// * `bucket`: name of the bucket/storage
+    /// * `region`: region where the bucket/storage ought to be located
     /// * `endpoint`: the endpoint where the storage is located, either an AWS endpoint
     ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
     ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
     ///     to retrieve the endpoint based on the specified region.
     pub async fn new(
         credentials: Credentials,
-        region: Region,
         bucket: String,
+        region: Option<String>,
         endpoint: Option<String>,
     ) -> Self {
-        let mut config_loader = aws_config::ConfigLoader::default()
-            .region(region.to_owned())
-            .credentials_provider(credentials);
+        let mut config_loader =
+            aws_config::ConfigLoader::default().credentials_provider(credentials);
+
+        config_loader = match region {
+            Some(ref region) => config_loader.region(Region::new(region.to_owned())),
+            None => {
+                log::debug!("Region not specified.");
+                config_loader
+            }
+        };
 
         config_loader = match endpoint {
-            Some(endpoint) => {
-                log::debug!("Loading endpoint '{endpoint}'.");
-                config_loader.endpoint_resolver(Endpoint::immutable(
-                    endpoint.parse().expect("Invalid endpoint: "),
-                ))
-            }
+            Some(endpoint) => config_loader.endpoint_resolver(Endpoint::immutable(
+                endpoint.parse().expect("Invalid endpoint: "),
+            )),
             None => {
-                log::debug!("Using AWS default endpoint.");
+                log::debug!("Endpoint not specified.");
                 config_loader
             }
         };
 
         let client = Client::new(&config_loader.load().await);
+
         S3Client {
             client,
             bucket: bucket.to_string(),
@@ -156,9 +161,12 @@ impl S3Client {
     /// - Error in any other case
     #[tokio::main]
     pub async fn create_bucket(&self, reuse_bucket: bool) -> ZResult<Option<CreateBucketOutput>> {
-        let constraint = BucketLocationConstraint::from(self.region.to_string().as_str());
+        let constraint = self
+            .region
+            .as_ref()
+            .map(|region| BucketLocationConstraint::from(region.as_str()));
         let cfg = CreateBucketConfiguration::builder()
-            .location_constraint(constraint)
+            .set_location_constraint(constraint)
             .build();
         let result = self
             .client
@@ -176,7 +184,7 @@ impl S3Client {
                 };
                 Err(zerror!("Couldn't associate bucket '{self}': {raw:?}").into())
             }
-            _ => Err(zerror!("Couldn't create or associate bucket '{self}'.").into()),
+            Err(err) => Err(zerror!("Couldn't create or associate bucket '{self}': {err}.").into()),
         }
     }
 

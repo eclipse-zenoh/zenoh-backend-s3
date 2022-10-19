@@ -12,16 +12,14 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::{Credentials, Region};
+use aws_sdk_s3::Credentials;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
-use zenoh_core::{bail, zerror};
+use zenoh_core::zerror;
 
 // Properties used by the Backend
 const PROP_S3_ACCESS_KEY: &str = "access_key";
 const PROP_S3_BUCKET: &str = "bucket";
-const PROP_S3_REGION: &str = "region";
 const PROP_S3_SECRET_KEY: &str = "secret_key";
 
 // Properties used by the Storage
@@ -51,7 +49,6 @@ pub enum OnClosure {
 ///        id: "s3",
 ///        reuse_bucket: true,
 ///        bucket: "zenoh-test-bucket",
-///        region: "eu-west-3",
 ///        on_closure: "destroy_bucket",
 ///        private: {
 ///            access_key: "AKIAIOSFODNN7EXAMPLE",
@@ -67,8 +64,6 @@ pub enum OnClosure {
 /// * credentials: is loaded from the access_key_id and secret_key_id set in the config file which
 ///     were previously set in the S3 configuration in order to grant permissions to a user to
 ///     perform operations such as read, write, create bucket, delete bucket...
-/// * region: the region in which the bucket is located, for instance `eu-west-3` or `us-east-1`
-///     (see https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.RegionsAndAvailabilityZones.html)
 /// * bucket: name of the bucket the storage is associated to
 /// * path_prefix: the path prefix stated under the `strip_prefix` value of the configuration file.
 ///     This prefix needs to match the key expression associated to this storage (otherwise Error
@@ -85,7 +80,6 @@ pub enum OnClosure {
 /// * admin_status: the json value of the [StorageConfig]
 pub struct S3Config {
     pub credentials: Credentials,
-    pub region: Region,
     pub bucket: String,
     pub path_prefix: String,
     pub is_read_only: bool,
@@ -98,7 +92,6 @@ impl S3Config {
     /// Creates a new instance of [S3Config] from the StorageConfig passed as a parameter.
     pub async fn new(config: &StorageConfig) -> ZResult<Self> {
         let credentials = S3Config::load_credentials(config)?;
-        let region = S3Config::load_region(config).await?;
         let path_prefix = S3Config::load_path_prefix(config)?;
         let bucket = S3Config::load_bucket_name(config)?;
         let is_read_only = S3Config::is_read_only(config)?;
@@ -108,7 +101,6 @@ impl S3Config {
 
         Ok(S3Config {
             credentials,
-            region,
             bucket,
             path_prefix,
             is_read_only,
@@ -137,24 +129,6 @@ impl S3Config {
             None,
             DEFAULT_PROVIDER,
         ))
-    }
-
-    async fn load_region(config: &StorageConfig) -> ZResult<Region> {
-        let region_code = match config.volume_cfg.get(PROP_S3_REGION).ok_or_else(|| {
-            zerror!("Property '{PROP_S3_REGION}' was not specified on the configuration file!")
-        })? {
-            serde_json::Value::String(region) => region.clone(),
-            _ => bail!(
-                "Mandatory property `{}` for S3 Backend must be a string",
-                PROP_S3_REGION
-            ),
-        };
-        let region =
-            RegionProviderChain::first_try(aws_sdk_s3::Region::new(region_code.to_owned()))
-                .region()
-                .await
-                .ok_or_else(|| zerror!("Unable to load storage region '{region_code}'"))?;
-        Ok(region)
     }
 
     fn load_bucket_name(config: &StorageConfig) -> ZResult<String> {

@@ -13,6 +13,10 @@
             // instance instead of the Amazon S3 service.
             url: "https://s3.eu-west-1.amazonaws.com",
 
+            // AWS region to which connect. In order to connect to an AWS S3 server, if this field 
+            // is specified then the url is not required, as it will be inferred from the region.
+            region: "eu-west-1",
+
             private: {
                 // Credentials for interacting with the S3 volume. They may differ from the storage credentials.
                 access_key: "AKIAIOSFODNN7EXAMPLE",
@@ -43,9 +47,6 @@
             // owned by you, then with 'reuse_bucket' you can associate that preexisting bucket to
             // the storage, otherwise it will fail.
             reuse_bucket: true,
-
-            // AWS region to which connect
-            region: "eu-west-3",
 
             // If the storage is read only, it will only handle GET requests
             read_only: false,

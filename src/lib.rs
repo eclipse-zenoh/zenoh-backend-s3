@@ -29,12 +29,13 @@ use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{StorageConfig, VolumeConfig};
 use zenoh_backend_traits::StorageInsertionResult;
 use zenoh_backend_traits::*;
-use zenoh_core::{bail, zerror};
+use zenoh_core::zerror;
 
 use crate::config::S3Config;
 
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
+pub const PROP_S3_REGION: &str = "region";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
 // operations.
@@ -59,14 +60,8 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
         .rest
         .insert("version".into(), LONG_VERSION.clone().into());
 
-    let endpoint = match config.rest.get(PROP_S3_ENDPOINT) {
-        Some(serde_json::Value::String(endpoint)) => Some(endpoint.clone()),
-        None => {
-            log::debug!("Property '{PROP_S3_ENDPOINT}' was not specified. ");
-            None
-        }
-        _ => bail!("Property '{PROP_S3_ENDPOINT}' for S3 Backend must be a string."),
-    };
+    let endpoint = get_optional_string_property(PROP_S3_ENDPOINT, &config)?;
+    let region = get_optional_string_property(PROP_S3_REGION, &config)?;
 
     let mut properties = Properties::default();
     properties.insert("version".into(), LONG_VERSION.clone());
@@ -80,12 +75,25 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
     Ok(Box::new(S3Backend {
         admin_status,
         endpoint,
+        region,
     }))
+}
+
+fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResult<Option<String>> {
+    match config.rest.get(property) {
+        Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
+        None => {
+            log::debug!("Property '{property}' was not specified. ");
+            Ok(None)
+        }
+        _ => Err(zerror!("Property '{property}' for S3 Backend must be a string.").into()),
+    }
 }
 
 pub struct S3Backend {
     admin_status: serde_json::Value,
     endpoint: Option<String>,
+    region: Option<String>,
 }
 
 #[async_trait]
@@ -100,8 +108,8 @@ impl Volume for S3Backend {
 
         let client = S3Client::new(
             config.credentials.to_owned(),
-            config.region.to_owned(),
             config.bucket.to_owned(),
+            self.region.to_owned(),
             self.endpoint.to_owned(),
         )
         .await;
