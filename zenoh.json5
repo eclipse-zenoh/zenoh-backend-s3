@@ -5,20 +5,22 @@
       volumes: {
         s3: {
 
-            // Endpoint where the AWS S3 server is located (https://docs.aws.amazon.com/general/latest/gr/s3.html)
-            // This parameter is optional, if not specified then the AWS endpoint resolver will 
-            // provide an endpoint based on the region specified.
-            //
-            // This parameter can also be a custom endpoint in case you want to use a MinIO 
-            // instance instead of the Amazon S3 service.
-            url: "https://s3.eu-west-1.amazonaws.com",
-
-            // AWS region to which connect. In order to connect to an AWS S3 server, if this field 
-            // is specified then the url is not required, as it will be inferred from the region.
+            // AWS region to which connect (see https://docs.aws.amazon.com/general/latest/gr/s3.html). 
+            // This field is mandatory if you are going to communicate with an AWS S3 server and
+            // optional in case you are working with a MinIO S3 server.
             region: "eu-west-1",
 
+            // Endpoint where the S3 server is located.
+            // This parameter allows you to specify a custom endpoint when working with a MinIO S3 
+            // server.
+            // This field is mandatory if you are working with a MinIO server and optional in case
+            // you are working with an AWS S3 server as long as you specified the region, in which
+            // case the endpoint will be resolved automatically.
+            url: "https://s3.eu-west-1.amazonaws.com",
+
             private: {
-                // Credentials for interacting with the S3 volume. They may differ from the storage credentials.
+                // Credentials for interacting with the S3 volume. They may differ from the storage
+                // credentials.
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
             }

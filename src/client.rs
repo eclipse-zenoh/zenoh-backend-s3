@@ -58,8 +58,12 @@ impl S3Client {
         config_loader = match region {
             Some(ref region) => config_loader.region(Region::new(region.to_owned())),
             None => {
-                log::debug!("Region not specified.");
-                config_loader
+                // The region MUST be specified to perform a request to an S3 server when using the
+                // aws_sdk_s3 crate. However when working with the MinIO S3 implementation (where
+                // the region is not considered) then in the config file the region is optional and
+                // we instead specify an empty region here below.
+                log::debug!("Region not specified. Setting empty region...");
+                config_loader.region(Region::new(""))
             }
         };
 
