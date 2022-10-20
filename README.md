@@ -50,11 +50,23 @@ If successful, then the console can be accessed on http://localhost:9090.
         storage_manager: {
           volumes: {
             s3: {
-                // Endpoint where the S3 server is located
-                url: "http://localhost:9000",
+
+                // AWS region to which connect (see https://docs.aws.amazon.com/general/latest/gr/s3.html). 
+                // This field is mandatory if you are going to communicate with an AWS S3 server and
+                // optional in case you are working with a MinIO S3 server.
+                region: "eu-west-1",
+
+                // Endpoint where the S3 server is located.
+                // This parameter allows you to specify a custom endpoint when working with a MinIO S3 
+                // server.
+                // This field is mandatory if you are working with a MinIO server and optional in case
+                // you are working with an AWS S3 server as long as you specified the region, in which
+                // case the endpoint will be resolved automatically.
+                url: "https://s3.eu-west-1.amazonaws.com",
 
                 private: {
-                    // Credentials for interacting with the S3 volume. They may differ from the storage credentials.
+                    // Credentials for interacting with the S3 volume. They may differ from the storage
+                    // credentials.
                     access_key: "AKIAIOSFODNN7EXAMPLE",
                     secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
                 }
@@ -83,9 +95,6 @@ If successful, then the console can be accessed on http://localhost:9090.
                 // owned by you, then with 'reuse_bucket' you can associate that preexisting bucket to
                 // the storage, otherwise it will fail.
                 reuse_bucket: true,
-
-                // AWS region to which connect
-                region: "eu-west-3",
 
                 // If the storage is read only, it will only handle GET requests
                 read_only: false,
@@ -120,6 +129,17 @@ If successful, then the console can be accessed on http://localhost:9090.
     zenohd -c zenoh.json5
     ```
 
+**Volume configuration when working with AWS S3 storage**
+
+When working with the AWS S3 storage, the region must be specified following the region names indicated in the [Amazon Simple Storage Service endpoints and quotas
+](https://docs.aws.amazon.com/general/latest/gr/s3.html) documentation. The url of the endpoint is not required as the internal endpoint resolver will automatically 
+find which is the endpoint associated to the region specified.
+
+All the storages associated to the volume will use the same region.
+
+**Volume configuration when working with MinIO**
+
+Inversely, when working with a MinIO S3 storage, then we need to specify the endpoint of the storage rather than the region, which will be ignored by the MinIO server. We can save ourselves to specify the region in that case.
 ### **Setup at runtime via `curl` commands on the admin space**
 
   - Run the zenoh router:  
