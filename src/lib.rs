@@ -18,6 +18,7 @@ pub mod config;
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
+use aws_sdk_s3::model::Object;
 use client::S3Client;
 use std::convert::TryFrom;
 
@@ -231,39 +232,34 @@ impl Storage for S3Storage {
             self.client
         );
 
-        let client2 = self.client.clone();
-        let key2 = key.to_owned();
-
-        let output_result = self
-            .runtime
-            .spawn(async move { client2.get_object(key2.as_str()).await })
-            .await
-            .map_err(|e| zerror!("Get operation failed: {e}"))?
-            .map_err(|e| zerror!("Get operation failed: {e}"))?;
-
-        let encoding = output_result.content_encoding().map(|x| x.to_string());
-        let bytes = output_result
-            .body
-            .collect()
-            .await
-            .map(|data| data.into_bytes())
-            .map_err(|e| {
-                zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
-            })?;
-
-        let encoding = match encoding {
-            Some(value) => Encoding::try_from(value).map_or_else(
-                |_| Value::from(Vec::from(bytes.to_owned())),
-                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
-            ),
-            None => Value::from(Vec::from(bytes)),
-        };
-
-        Ok(query
-            .reply(Sample::new(query.key_expr().clone(), encoding))
-            .res()
-            .await
-            .map_err(|e| zerror!("{e}"))?)
+        let key_expr = query.key_expr();
+        if key_expr.is_wild() {
+            let client1 = self.client.clone();
+            let key_expr2 = key_expr.to_owned();
+            let prefix = self.config.path_prefix.to_owned();
+            let intersecting_objects = self
+                .runtime
+                .spawn(async move { get_intersecting_objects(&client1, &key_expr2, &prefix).await })
+                .await
+                .map_err(|e| zerror!("Get operation failed: {e}"))?
+                .map_err(|e| zerror!("Get operation failed: {e}"))?;
+            for object in intersecting_objects {
+                let value = get_stored_value(self, object.key().unwrap()).await?;
+                query
+                    .reply(Sample::new(KeyExpr::try_from(self.config.path_prefix.to_owned() + "/" + object.key().unwrap())?, value))
+                    .res()
+                    .await
+                    .map_err(|e| zerror!("{e}"))?;
+            }
+        } else {
+            let value = get_stored_value(self, key).await?;
+            query
+                .reply(Sample::new(query.key_expr().clone(), value))
+                .res()
+                .await
+                .map_err(|e| zerror!("{e}"))?
+        }
+        Ok(())
     }
 
     // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/1): create
@@ -276,6 +272,35 @@ impl Storage for S3Storage {
         );
         Err("Could not retrieve all entries from storage.".into())
     }
+}
+
+async fn get_stored_value(storage: &S3Storage, key: &str) -> ZResult<Value> {
+    let client2 = storage.client.clone();
+    let key2 = key.to_owned();
+
+    let output_result = storage
+        .runtime
+        .spawn(async move { client2.get_object(key2.as_str()).await })
+        .await
+        .map_err(|e| zerror!("Get operation failed: {e}"))?
+        .map_err(|e| zerror!("Get operation failed: {e}"))?;
+
+    let encoding = output_result.content_encoding().map(|x| x.to_string());
+    let bytes = output_result
+        .body
+        .collect()
+        .await
+        .map(|data| data.into_bytes())
+        .map_err(|e| zerror!("Get operation failed. Couldn't process retrieved contents: {e}"))?;
+
+    let value = match encoding {
+        Some(encoding) => Encoding::try_from(encoding).map_or_else(
+            |_| Value::from(Vec::from(bytes.to_owned())),
+            |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
+        ),
+        None => Value::from(Vec::from(bytes)),
+    };
+    Ok(value)
 }
 
 impl Drop for S3Storage {
@@ -304,4 +329,22 @@ impl Drop for S3Storage {
             }
         }
     }
+}
+
+// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
+// expression.
+async fn get_intersecting_objects(
+    client: &S3Client,
+    key_expr: &KeyExpr<'_>,
+    prefix: &String
+) -> ZResult<Vec<Object>> {
+    let mut intersecting_objects = Vec::new();
+    let objects = client.list_objects_in_bucket().await?;
+    for object in objects {
+        let key = KeyExpr::try_from(prefix.to_owned() + "/" + object.key().unwrap())?;
+        if key_expr.intersects(key.as_ref()) {
+            intersecting_objects.push(object);
+        }
+    }
+    Ok(intersecting_objects)
 }

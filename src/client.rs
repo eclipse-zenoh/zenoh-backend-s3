@@ -208,7 +208,7 @@ impl S3Client {
     }
 
     /// Lists all the objects contained in the bucket.
-    async fn list_objects_in_bucket(&self) -> ZResult<Vec<Object>> {
+    pub async fn list_objects_in_bucket(&self) -> ZResult<Vec<Object>> {
         let response = self
             .client
             .list_objects_v2()
