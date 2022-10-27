@@ -19,9 +19,13 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use aws_sdk_s3::model::Object;
+use aws_sdk_s3::output::GetObjectOutput;
 use client::S3Client;
+use futures::future::join_all;
 use std::convert::TryFrom;
 
+use crate::config::S3Config;
+use futures::stream::FuturesUnordered;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
 use zenoh::properties::Properties;
@@ -31,8 +35,6 @@ use zenoh_backend_traits::config::{StorageConfig, VolumeConfig};
 use zenoh_backend_traits::StorageInsertionResult;
 use zenoh_backend_traits::*;
 use zenoh_core::zerror;
-
-use crate::config::S3Config;
 
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
@@ -234,23 +236,39 @@ impl Storage for S3Storage {
 
         let key_expr = query.key_expr();
         if key_expr.is_wild() {
-            let client1 = self.client.clone();
-            let key_expr2 = key_expr.to_owned();
+            let client = self.client.clone();
+            let key_expr = key_expr.to_owned();
             let prefix = self.config.path_prefix.to_owned();
+
+            let arc_query = Arc::new(query);
             let intersecting_objects = self
                 .runtime
-                .spawn(async move { get_intersecting_objects(&client1, &key_expr2, &prefix).await })
+                .spawn(async move { get_intersecting_objects(&client, &key_expr, &prefix).await })
                 .await
                 .map_err(|e| zerror!("Get operation failed: {e}"))?
                 .map_err(|e| zerror!("Get operation failed: {e}"))?;
-            for object in intersecting_objects {
-                let value = get_stored_value(self, object.key().unwrap()).await?;
-                query
-                    .reply(Sample::new(KeyExpr::try_from(self.config.path_prefix.to_owned() + "/" + object.key().unwrap())?, value))
-                    .res()
-                    .await
-                    .map_err(|e| zerror!("{e}"))?;
-            }
+
+            join_all(
+                intersecting_objects
+                    .into_iter()
+                    .map(|object| {
+                        let client = self.client.clone();
+                        let query = arc_query.clone();
+                        let prefix = self.config.path_prefix.to_owned();
+                        self.runtime.spawn(async move {
+                            let result = get_value_from_storage(client, object).await;
+                            match result {
+                                Ok(value) => reply_query(query, prefix, value.0, value.1).await,
+                                Err(err) => {
+                                    log::debug!("Unable to retrieve object from storage: {err:?}");
+                                    Ok(())
+                                }
+                            }
+                        })
+                    })
+                    .collect::<FuturesUnordered<_>>(),
+            )
+            .await;
         } else {
             let value = get_stored_value(self, key).await?;
             query
@@ -331,20 +349,96 @@ impl Drop for S3Storage {
     }
 }
 
-// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
-// expression.
+/// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
+/// expression.
+///
+/// # Arguments
+///
+/// * `client` - the [S3Client] allowing us to communicate with the S3 server
+/// * `key_expr` - the wild key expression we want to intersect against the stored keys
+/// * `prefix` - prefix from the configuration
+///
+/// # Returns
+///
+/// A vector of the intersecting objects contained in the storage or an error result. Note that the
+/// objects do not contain their actual paylod, this must be retrieved afterwards doing a proper
+/// request.
 async fn get_intersecting_objects(
     client: &S3Client,
     key_expr: &KeyExpr<'_>,
-    prefix: &String
+    prefix: &String,
 ) -> ZResult<Vec<Object>> {
-    let mut intersecting_objects = Vec::new();
-    let objects = client.list_objects_in_bucket().await?;
-    for object in objects {
-        let key = KeyExpr::try_from(prefix.to_owned() + "/" + object.key().unwrap())?;
+    let mut intersecting_objects_metadata = Vec::new();
+    let objects_metadata = client.list_objects_in_bucket().await?;
+    for metadata in objects_metadata {
+        let key = KeyExpr::try_from(prefix.to_owned() + "/" + metadata.key().unwrap())?;
         if key_expr.intersects(key.as_ref()) {
-            intersecting_objects.push(object);
+            intersecting_objects_metadata.push(metadata);
         }
     }
-    Ok(intersecting_objects)
+    Ok(intersecting_objects_metadata)
+}
+
+/// Utility function to retrieve the value of an object to the S3 storage.
+///
+/// This function obtains the key from the object metadata and realizes a request upon the S3
+/// server to obtain the actual payload and thus its value. It is intended to be used by multiple
+/// tasks running in parallel.
+///
+/// # Arguments
+///
+/// * `client` - atomically reference counted of the [S3Client] with which we communicate with the
+///             s3 server
+/// * `object_metadata` - metadata of the object from which the value is to be retrieved
+///
+/// # Returns
+///
+/// * A (String, Value) tupple where the value is the object's value and the string parameter is
+///     the key of the object.
+async fn get_value_from_storage(
+    client: Arc<S3Client>,
+    object_metadata: Object,
+) -> ZResult<(String, Value)> {
+    let key = object_metadata
+        .key()
+        .ok_or_else(|| zerror!("Could not get key for object {:?}", object_metadata))?;
+    let result = client.get_object(key).await;
+    let output = result.map_err(|e| zerror!("Get operation failed: {e}"))?;
+    Ok((key.to_string(), extract_value_from_response(output).await?))
+}
+
+/// Utility function to extract the [Value] from a result.
+///
+/// # Arguments
+///
+/// * `response`: response from the S3 server to a get object request.
+async fn extract_value_from_response(response: GetObjectOutput) -> ZResult<Value> {
+    let encoding = response.content_encoding().map(|x| x.to_string());
+    let bytes = response
+        .body
+        .collect()
+        .await
+        .map(|data| data.into_bytes())?;
+
+    let value = match encoding {
+        Some(encoding) => Encoding::try_from(encoding).map_or_else(
+            |_| Value::from(Vec::from(bytes.to_owned())),
+            |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
+        ),
+        None => Value::from(Vec::from(bytes)),
+    };
+    Ok(value)
+}
+
+/// Utility function to reply to a query having a wild key. It is intended to be used by multiple
+/// tasks running in parallel.
+async fn reply_query(query: Arc<Query>, prefix: String, key: String, value: Value) -> ZResult<()> {
+    Ok(query
+        .reply(Sample::new(
+            KeyExpr::try_from(prefix.to_owned() + "/" + key.as_str())?,
+            value,
+        ))
+        .res()
+        .await
+        .map_err(|e| zerror!("{e}"))?)
 }
