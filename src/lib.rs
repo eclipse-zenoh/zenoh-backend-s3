@@ -169,16 +169,8 @@ impl Storage for S3Storage {
             self.client,
             sample.key_expr
         );
-        let key = sample
-            .key_expr
-            .as_str()
-            .strip_prefix(&self.config.path_prefix)
-            .ok_or_else(|| {
-                zerror!(
-                    "Received a Sample not starting with path_prefix '{}'",
-                    self.config.path_prefix
-                )
-            })?;
+
+        let key = build_object_key(sample.key_expr.to_owned(), &self.config.path_prefix)?;
 
         match sample.kind {
             SampleKind::Put => {
@@ -217,16 +209,7 @@ impl Storage for S3Storage {
     }
 
     async fn on_query(&mut self, query: Query) -> ZResult<()> {
-        let key = query
-            .key_expr()
-            .as_str()
-            .strip_prefix(&self.config.path_prefix)
-            .ok_or_else(|| {
-                zerror!(
-                    "Received a Query not starting with path_prefix '{}'",
-                    self.config.path_prefix
-                )
-            })?;
+        let key = build_object_key(query.key_expr().to_owned(), &self.config.path_prefix)?;
 
         log::debug!(
             "Query operation received for '{}' on bucket '{}'.",
@@ -270,7 +253,7 @@ impl Storage for S3Storage {
             )
             .await;
         } else {
-            let value = get_stored_value(self, key).await?;
+            let value = get_stored_value(self, &key).await?;
             query
                 .reply(Sample::new(query.key_expr().clone(), value))
                 .res()
@@ -292,7 +275,27 @@ impl Storage for S3Storage {
     }
 }
 
-async fn get_stored_value(storage: &S3Storage, key: &str) -> ZResult<Value> {
+fn build_object_key(key_expr: KeyExpr, prefix: &String) -> ZResult<String> {
+    Ok(key_expr
+        .as_str()
+        .strip_prefix(prefix)
+        .ok_or_else(|| {
+            zerror!(
+                "Received a Sample not starting with path_prefix '{}'",
+                prefix
+            )
+        })?
+        .trim_start_matches("/")
+        .to_string())
+}
+
+fn build_key_expr(key: String, prefix: String) -> ZResult<KeyExpr<'static>> {
+    Ok(KeyExpr::try_from(
+        prefix + "/" + key.trim_start_matches("/"),
+    )?)
+}
+
+async fn get_stored_value(storage: &S3Storage, key: &String) -> ZResult<Value> {
     let client2 = storage.client.clone();
     let key2 = key.to_owned();
 
@@ -300,8 +303,8 @@ async fn get_stored_value(storage: &S3Storage, key: &str) -> ZResult<Value> {
         .runtime
         .spawn(async move { client2.get_object(key2.as_str()).await })
         .await
-        .map_err(|e| zerror!("Get operation failed: {e}"))?
-        .map_err(|e| zerror!("Get operation failed: {e}"))?;
+        .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
+        .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
 
     let encoding = output_result.content_encoding().map(|x| x.to_string());
     let bytes = output_result
@@ -371,7 +374,13 @@ async fn get_intersecting_objects(
     let mut intersecting_objects_metadata = Vec::new();
     let objects_metadata = client.list_objects_in_bucket().await?;
     for metadata in objects_metadata {
-        let key = KeyExpr::try_from(prefix.to_owned() + "/" + metadata.key().unwrap())?;
+        let key = build_key_expr(
+            metadata
+                .key()
+                .ok_or_else(|| zerror!("Unable to retrieve key from object {:?}", metadata))?
+                .to_owned(),
+            prefix.to_owned(),
+        )?;
         if key_expr.intersects(key.as_ref()) {
             intersecting_objects_metadata.push(metadata);
         }
@@ -435,7 +444,7 @@ async fn extract_value_from_response(response: GetObjectOutput) -> ZResult<Value
 async fn reply_query(query: Arc<Query>, prefix: String, key: String, value: Value) -> ZResult<()> {
     Ok(query
         .reply(Sample::new(
-            KeyExpr::try_from(prefix.to_owned() + "/" + key.as_str())?,
+            build_key_expr(key, prefix)?,
             value,
         ))
         .res()
