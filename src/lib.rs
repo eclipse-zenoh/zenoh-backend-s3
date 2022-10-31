@@ -172,7 +172,7 @@ impl Storage for S3Storage {
         );
 
         let s3_key = S3Key::from_key_expr(
-            Some(self.config.path_prefix.to_owned()),
+            self.config.path_prefix.to_owned(),
             sample.key_expr.to_owned(),
         )?;
 
@@ -220,19 +220,15 @@ impl Storage for S3Storage {
         );
 
         let key_expr = query.key_expr();
+        let prefix = self.config.path_prefix.to_owned();
         if key_expr.is_wild() {
             let client = self.client.clone();
             let key_expr = key_expr.to_owned();
-            let prefix = self.config.path_prefix.to_owned();
 
             let arc_query = Arc::new(query);
             let intersecting_objects = self
                 .runtime
-                .spawn(async move {
-                    client
-                        .get_intersecting_objects(&key_expr, Some(prefix))
-                        .await
-                })
+                .spawn(async move { client.get_intersecting_objects(&key_expr, prefix).await })
                 .await
                 .map_err(|e| zerror!("Get operation failed: {e}"))?
                 .map_err(|e| zerror!("Get operation failed: {e}"))?;
@@ -243,7 +239,7 @@ impl Storage for S3Storage {
                     .map(|object| {
                         let client = self.client.clone();
                         let query = arc_query.clone();
-                        let prefix = Some(self.config.path_prefix.to_owned()); //TODO, make prefix optional
+                        let prefix = self.config.path_prefix.to_owned();
                         self.runtime.spawn(async move {
                             let key = object.key().ok_or_else(|| {
                                 zerror!("Could not get key for object {:?}", object)
@@ -263,10 +259,7 @@ impl Storage for S3Storage {
             )
             .await;
         } else {
-            let s3_key = S3Key::from_key_expr(
-                Some(self.config.path_prefix.to_owned()),
-                query.key_expr().to_owned(),
-            )?;
+            let s3_key = S3Key::from_key_expr(prefix, query.key_expr().to_owned())?;
 
             let value = self.get_stored_value(&s3_key.into()).await?;
             query

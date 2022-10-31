@@ -58,7 +58,7 @@ impl From<S3Key> for String {
     fn from(s3_key: S3Key) -> Self {
         s3_key.prefix.as_ref().map_or_else(
             || format!("/{}", s3_key.key.trim_start_matches('/')),
-            |prefix| format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')),
+            |prefix| s3_key.key.trim_start_matches(prefix).to_owned(),
         )
     }
 }

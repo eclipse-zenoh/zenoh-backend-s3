@@ -26,7 +26,6 @@ const PROP_S3_SECRET_KEY: &str = "secret_key";
 const PROP_STORAGE_REUSE_BUCKET: &str = "reuse_bucket";
 const PROP_STORAGE_READ_ONLY: &str = "read_only";
 const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
-const PROP_STRIP_PREFIX: &str = "strip_prefix";
 
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 
@@ -81,7 +80,7 @@ pub enum OnClosure {
 pub struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
-    pub path_prefix: String,
+    pub path_prefix: Option<String>,
     pub is_read_only: bool,
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
@@ -138,27 +137,24 @@ impl S3Config {
         }?)
     }
 
-    fn load_path_prefix(config: &StorageConfig) -> ZResult<String> {
-        let prefix = config
-            .strip_prefix
-            .to_owned()
-            .ok_or_else(|| {
-                zerror!(
-                    "Property '{PROP_STRIP_PREFIX}' was not specified on the configuration file!"
-                )
-            })?
-            .to_string();
-        let path_expr = config.key_expr.to_owned();
-        if !path_expr.starts_with(&prefix) {
-            Err(zerror!(
-                r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
-                prefix,
-                path_expr
-            )
-            .into())
-        } else {
-            Ok(prefix)
-        }
+    fn load_path_prefix(config: &StorageConfig) -> ZResult<Option<String>> {
+        config.strip_prefix.to_owned().map_or_else(
+            || Ok(None),
+            |prefix| {
+                let prefix = prefix.to_string();
+                let path_expr = config.key_expr.to_owned();
+                if !path_expr.starts_with(&prefix) {
+                    Err(zerror!(
+                        r#"The specified "strip_prefix={}" is not a prefix of "key_expr={}""#,
+                        prefix,
+                        path_expr
+                    )
+                    .into())
+                } else {
+                    Ok(Some(prefix))
+                }
+            },
+        )
     }
 
     fn is_read_only(config: &StorageConfig) -> ZResult<bool> {
