@@ -12,19 +12,20 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-mod client;
+pub mod client;
 pub mod config;
+pub mod utils;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
-use aws_sdk_s3::model::Object;
-use aws_sdk_s3::output::GetObjectOutput;
 use client::S3Client;
+use config::S3Config;
+use utils::{S3Key, S3Value};
+
 use futures::future::join_all;
 use std::convert::TryFrom;
 
-use crate::config::S3Config;
 use futures::stream::FuturesUnordered;
 use zenoh::prelude::r#async::AsyncResolve;
 use zenoh::prelude::*;
@@ -170,14 +171,17 @@ impl Storage for S3Storage {
             sample.key_expr
         );
 
-        let key = build_object_key(sample.key_expr.to_owned(), &self.config.path_prefix)?;
+        let s3_key = S3Key::from_key_expr(
+            Some(self.config.path_prefix.to_owned()),
+            sample.key_expr.to_owned(),
+        )?;
 
         match sample.kind {
             SampleKind::Put => {
                 if !self.config.is_read_only {
                     let client2 = self.client.clone();
                     let sample2 = sample.to_owned();
-                    let key2 = key.to_owned();
+                    let key2 = s3_key.into();
                     self.runtime
                         .spawn(async move { client2.put_object(key2, sample2).await })
                         .await
@@ -185,23 +189,23 @@ impl Storage for S3Storage {
                         .map_err(|e| zerror!("Put operation failed: {e}"))?;
                     Ok(StorageInsertionResult::Inserted)
                 } else {
-                    log::warn!("Received PUT for read-only DB on {:?} - ignored", key);
+                    log::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
                     Err("Received update for read-only DB".into())
                 }
             }
             SampleKind::Delete => {
                 if !self.config.is_read_only {
                     let client2 = self.client.clone();
-                    let key2 = key.to_owned();
+                    let key2 = s3_key.into();
 
                     self.runtime
-                        .spawn(async move { client2.delete_object(key2.to_string()).await })
+                        .spawn(async move { client2.delete_object(key2).await })
                         .await
                         .map_err(|e| zerror!("Delete operation failed: {e}"))?
                         .map_err(|e| zerror!("Delete operation failed: {e}"))?;
                     Ok(StorageInsertionResult::Deleted)
                 } else {
-                    log::warn!("Received DELETE for read-only DB on {:?} - ignored", key);
+                    log::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
                     Err("Received update for read-only DB".into())
                 }
             }
@@ -209,8 +213,6 @@ impl Storage for S3Storage {
     }
 
     async fn on_query(&mut self, query: Query) -> ZResult<()> {
-        let key = build_object_key(query.key_expr().to_owned(), &self.config.path_prefix)?;
-
         log::debug!(
             "Query operation received for '{}' on bucket '{}'.",
             query.key_expr().as_str(),
@@ -226,7 +228,11 @@ impl Storage for S3Storage {
             let arc_query = Arc::new(query);
             let intersecting_objects = self
                 .runtime
-                .spawn(async move { get_intersecting_objects(&client, &key_expr, &prefix).await })
+                .spawn(async move {
+                    client
+                        .get_intersecting_objects(&key_expr, Some(prefix))
+                        .await
+                })
                 .await
                 .map_err(|e| zerror!("Get operation failed: {e}"))?
                 .map_err(|e| zerror!("Get operation failed: {e}"))?;
@@ -237,11 +243,15 @@ impl Storage for S3Storage {
                     .map(|object| {
                         let client = self.client.clone();
                         let query = arc_query.clone();
-                        let prefix = self.config.path_prefix.to_owned();
+                        let prefix = Some(self.config.path_prefix.to_owned()); //TODO, make prefix optional
                         self.runtime.spawn(async move {
-                            let result = get_value_from_storage(client, object).await;
+                            let key = object.key().ok_or_else(|| {
+                                zerror!("Could not get key for object {:?}", object)
+                            })?;
+                            let s3_key = S3Key::from_key(prefix, key.to_string());
+                            let result = client.get_value_from_storage(s3_key).await;
                             match result {
-                                Ok(value) => reply_query(query, prefix, value.0, value.1).await,
+                                Ok(s3_value) => S3Storage::reply_query(query, s3_value).await,
                                 Err(err) => {
                                     log::debug!("Unable to retrieve object from storage: {err:?}");
                                     Ok(())
@@ -253,7 +263,12 @@ impl Storage for S3Storage {
             )
             .await;
         } else {
-            let value = get_stored_value(self, &key).await?;
+            let s3_key = S3Key::from_key_expr(
+                Some(self.config.path_prefix.to_owned()),
+                query.key_expr().to_owned(),
+            )?;
+
+            let value = self.get_stored_value(&s3_key.into()).await?;
             query
                 .reply(Sample::new(query.key_expr().clone(), value))
                 .res()
@@ -275,53 +290,50 @@ impl Storage for S3Storage {
     }
 }
 
-fn build_object_key(key_expr: KeyExpr, prefix: &String) -> ZResult<String> {
-    Ok(key_expr
-        .as_str()
-        .strip_prefix(prefix)
-        .ok_or_else(|| {
-            zerror!(
-                "Received a Sample not starting with path_prefix '{}'",
-                prefix
-            )
-        })?
-        .trim_start_matches("/")
-        .to_string())
-}
+impl S3Storage {
+    async fn get_stored_value(&self, key: &String) -> ZResult<Value> {
+        let client2 = self.client.clone();
+        let key2 = key.to_owned();
+        log::debug!("XXXX {}", key.to_owned());
+        let output_result = self
+            .runtime
+            .spawn(async move { client2.get_object(key2.as_str()).await })
+            .await
+            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
+            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
 
-fn build_key_expr(key: String, prefix: String) -> ZResult<KeyExpr<'static>> {
-    Ok(KeyExpr::try_from(
-        prefix + "/" + key.trim_start_matches("/"),
-    )?)
-}
+        let encoding = output_result.content_encoding().map(|x| x.to_string());
+        let bytes = output_result
+            .body
+            .collect()
+            .await
+            .map(|data| data.into_bytes())
+            .map_err(|e| {
+                zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
+            })?;
 
-async fn get_stored_value(storage: &S3Storage, key: &String) -> ZResult<Value> {
-    let client2 = storage.client.clone();
-    let key2 = key.to_owned();
+        let value = match encoding {
+            Some(encoding) => Encoding::try_from(encoding).map_or_else(
+                |_| Value::from(Vec::from(bytes.to_owned())),
+                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
+            ),
+            None => Value::from(Vec::from(bytes)),
+        };
+        Ok(value)
+    }
 
-    let output_result = storage
-        .runtime
-        .spawn(async move { client2.get_object(key2.as_str()).await })
-        .await
-        .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
-        .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
-
-    let encoding = output_result.content_encoding().map(|x| x.to_string());
-    let bytes = output_result
-        .body
-        .collect()
-        .await
-        .map(|data| data.into_bytes())
-        .map_err(|e| zerror!("Get operation failed. Couldn't process retrieved contents: {e}"))?;
-
-    let value = match encoding {
-        Some(encoding) => Encoding::try_from(encoding).map_or_else(
-            |_| Value::from(Vec::from(bytes.to_owned())),
-            |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
-        ),
-        None => Value::from(Vec::from(bytes)),
-    };
-    Ok(value)
+    /// Utility function to reply to a query having a wild key. It is intended to be used by multiple
+    /// tasks running in parallel.
+    async fn reply_query(query: Arc<Query>, s3_value: S3Value) -> ZResult<()> {
+        Ok(query
+            .reply(Sample::new(
+                KeyExpr::try_from(s3_value.key)?,
+                s3_value.value,
+            ))
+            .res()
+            .await
+            .map_err(|e| zerror!("{e}"))?)
+    }
 }
 
 impl Drop for S3Storage {
@@ -350,104 +362,4 @@ impl Drop for S3Storage {
             }
         }
     }
-}
-
-/// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
-/// expression.
-///
-/// # Arguments
-///
-/// * `client` - the [S3Client] allowing us to communicate with the S3 server
-/// * `key_expr` - the wild key expression we want to intersect against the stored keys
-/// * `prefix` - prefix from the configuration
-///
-/// # Returns
-///
-/// A vector of the intersecting objects contained in the storage or an error result. Note that the
-/// objects do not contain their actual paylod, this must be retrieved afterwards doing a proper
-/// request.
-async fn get_intersecting_objects(
-    client: &S3Client,
-    key_expr: &KeyExpr<'_>,
-    prefix: &String,
-) -> ZResult<Vec<Object>> {
-    let mut intersecting_objects_metadata = Vec::new();
-    let objects_metadata = client.list_objects_in_bucket().await?;
-    for metadata in objects_metadata {
-        let key = build_key_expr(
-            metadata
-                .key()
-                .ok_or_else(|| zerror!("Unable to retrieve key from object {:?}", metadata))?
-                .to_owned(),
-            prefix.to_owned(),
-        )?;
-        if key_expr.intersects(key.as_ref()) {
-            intersecting_objects_metadata.push(metadata);
-        }
-    }
-    Ok(intersecting_objects_metadata)
-}
-
-/// Utility function to retrieve the value of an object to the S3 storage.
-///
-/// This function obtains the key from the object metadata and realizes a request upon the S3
-/// server to obtain the actual payload and thus its value. It is intended to be used by multiple
-/// tasks running in parallel.
-///
-/// # Arguments
-///
-/// * `client` - atomically reference counted of the [S3Client] with which we communicate with the
-///             s3 server
-/// * `object_metadata` - metadata of the object from which the value is to be retrieved
-///
-/// # Returns
-///
-/// * A (String, Value) tupple where the value is the object's value and the string parameter is
-///     the key of the object.
-async fn get_value_from_storage(
-    client: Arc<S3Client>,
-    object_metadata: Object,
-) -> ZResult<(String, Value)> {
-    let key = object_metadata
-        .key()
-        .ok_or_else(|| zerror!("Could not get key for object {:?}", object_metadata))?;
-    let result = client.get_object(key).await;
-    let output = result.map_err(|e| zerror!("Get operation failed: {e}"))?;
-    Ok((key.to_string(), extract_value_from_response(output).await?))
-}
-
-/// Utility function to extract the [Value] from a result.
-///
-/// # Arguments
-///
-/// * `response`: response from the S3 server to a get object request.
-async fn extract_value_from_response(response: GetObjectOutput) -> ZResult<Value> {
-    let encoding = response.content_encoding().map(|x| x.to_string());
-    let bytes = response
-        .body
-        .collect()
-        .await
-        .map(|data| data.into_bytes())?;
-
-    let value = match encoding {
-        Some(encoding) => Encoding::try_from(encoding).map_or_else(
-            |_| Value::from(Vec::from(bytes.to_owned())),
-            |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
-        ),
-        None => Value::from(Vec::from(bytes)),
-    };
-    Ok(value)
-}
-
-/// Utility function to reply to a query having a wild key. It is intended to be used by multiple
-/// tasks running in parallel.
-async fn reply_query(query: Arc<Query>, prefix: String, key: String, value: Value) -> ZResult<()> {
-    Ok(query
-        .reply(Sample::new(
-            build_key_expr(key, prefix)?,
-            value,
-        ))
-        .res()
-        .await
-        .map_err(|e| zerror!("{e}"))?)
 }

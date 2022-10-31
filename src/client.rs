@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+use std::convert::TryFrom;
 use std::fmt;
 
 use aws_sdk_s3::model::{
@@ -22,10 +23,14 @@ use aws_sdk_s3::output::{
 };
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
+use zenoh::prelude::{Encoding, KeyExpr};
 use zenoh::sample::Sample;
+use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 use zenoh_core::zerror;
+
+use crate::utils::{S3Key, S3Value};
 
 /// Client to communicate with the S3 storage.
 pub struct S3Client {
@@ -216,6 +221,89 @@ impl S3Client {
             .send()
             .await?;
         Ok(response.contents().unwrap_or_default().to_vec())
+    }
+
+    /// Utility function to retrieve the value of an object to the S3 storage.
+    ///
+    /// This function obtains the key from the object metadata and realizes a request upon the S3
+    /// server to obtain the actual payload and thus its value. It is intended to be used by multiple
+    /// tasks running in parallel.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - atomically reference counted of the [S3Client] with which we communicate with the
+    ///             s3 server
+    /// * `object_metadata` - metadata of the object from which the value is to be retrieved
+    ///
+    /// # Returns
+    ///
+    /// *
+    pub async fn get_value_from_storage(&self, s3_key: S3Key) -> ZResult<S3Value> {
+        let result = self.get_object(&s3_key.key).await;
+        let output = result.map_err(|e| zerror!("Get operation failed: {e}"))?;
+        Ok(S3Value {
+            key: s3_key,
+            value: S3Client::extract_value_from_response(output).await?,
+        })
+    }
+
+    /// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
+    /// expression.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - the [S3Client] allowing us to communicate with the S3 server
+    /// * `key_expr` - the wild key expression we want to intersect against the stored keys
+    /// * `prefix` - prefix from the configuration
+    ///
+    /// # Returns
+    ///
+    /// A vector of the intersecting objects contained in the storage or an error result. Note that the
+    /// objects do not contain their actual paylod, this must be retrieved afterwards doing a proper
+    /// request.
+    pub async fn get_intersecting_objects(
+        &self,
+        key_expr: &KeyExpr<'_>,
+        prefix: Option<String>,
+    ) -> ZResult<Vec<Object>> {
+        let mut intersecting_objects_metadata = Vec::new();
+        let objects_metadata = self.list_objects_in_bucket().await?;
+        for metadata in objects_metadata {
+            let s3_key = S3Key::from_key(
+                prefix.to_owned(),
+                metadata
+                    .key()
+                    .ok_or_else(|| zerror!("Unable to retrieve key from object {:?}", metadata))?
+                    .to_owned(),
+            );
+            if key_expr.intersects(KeyExpr::try_from(s3_key)?.as_ref()) {
+                intersecting_objects_metadata.push(metadata);
+            }
+        }
+        Ok(intersecting_objects_metadata)
+    }
+
+    /// Utility function to extract the [Value] from a result.
+    ///
+    /// # Arguments
+    ///
+    /// * `response`: response from the S3 server to a get object request.
+    async fn extract_value_from_response(response: GetObjectOutput) -> ZResult<Value> {
+        let encoding = response.content_encoding().map(|x| x.to_string());
+        let bytes = response
+            .body
+            .collect()
+            .await
+            .map(|data| data.into_bytes())?;
+
+        let value = match encoding {
+            Some(encoding) => Encoding::try_from(encoding).map_or_else(
+                |_| Value::from(Vec::from(bytes.to_owned())),
+                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
+            ),
+            None => Value::from(Vec::from(bytes)),
+        };
+        Ok(value)
     }
 }
 
