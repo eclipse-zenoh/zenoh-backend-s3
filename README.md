@@ -105,8 +105,8 @@ If successful, then the console can be accessed on http://localhost:9090.
 
                 private: {
                     // Credentials for interacting with the S3 bucket
-                    access_key: "AKIAIOSFODNN7EXAMPLE",
-                    secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                    access_key: "SARASAFODNN7EXAMPLE",
+                    secret_key: "asADasWdKALsI/ASDP22NG/pWokSSLqEXAMPLEKEY",
                 }
               }
             },
@@ -137,9 +137,39 @@ find which is the endpoint associated to the region specified.
 
 All the storages associated to the volume will use the same region.
 
+The volumes section on the config file will look like:
+```
+volumes: {
+  s3: {
+      // AWS region to which connect
+      region: "eu-west-1",
+
+      private: {
+          access_key: "EXAMPLEAWSS3ACCESSKEY",
+          secret_key: "e/DdIEwGOMfsA10RADoaOw7kNAwEXAMPLEKEY",
+      }
+  }
+},
+...
+```
 **Volume configuration when working with MinIO**
 
 Inversely, when working with a MinIO S3 storage, then we need to specify the endpoint of the storage rather than the region, which will be ignored by the MinIO server. We can save ourselves to specify the region in that case.
+
+The volumes section on the config file will look like:
+```
+volumes: {
+  s3: {
+      url: "http://localhost:9000",
+
+      private: {
+          access_key: "AKIAIOSFODNN7EXAMPLE",
+          secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      }
+  }
+},
+...
+```
 ### **Setup at runtime via `curl` commands on the admin space**
 
   - Run the zenoh router:  
