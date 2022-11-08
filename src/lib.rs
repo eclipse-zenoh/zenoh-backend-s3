@@ -287,7 +287,6 @@ impl S3Storage {
     async fn get_stored_value(&self, key: &String) -> ZResult<Value> {
         let client2 = self.client.clone();
         let key2 = key.to_owned();
-        log::debug!("XXXX {}", key.to_owned());
         let output_result = self
             .runtime
             .spawn(async move { client2.get_object(key2.as_str()).await })
