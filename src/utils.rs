@@ -57,6 +57,8 @@ impl S3Key {
 impl From<S3Key> for String {
     fn from(s3_key: S3Key) -> Self {
         s3_key.prefix.as_ref().map_or_else(
+            // For compatibility purposes between Amazon S3 and MinIO S3 implementations we trim
+            // the '/' character.
             || format!("/{}", s3_key.key.trim_start_matches('/')),
             |prefix| s3_key.key.trim_start_matches(prefix).to_owned(),
         )
@@ -69,6 +71,8 @@ impl TryFrom<S3Key> for KeyExpr<'_> {
         s3_key.prefix.as_ref().map_or_else(
             || KeyExpr::try_from(s3_key.key.to_owned()),
             |prefix| {
+                // For compatibility purposes between Amazon S3 and MinIO S3 implementations we
+                // trim the '/' character.
                 KeyExpr::try_from(format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')))
             },
         )
