@@ -59,7 +59,7 @@ jobs:
           GIT_TAG=`[[ $GITHUB_REF =~ ^refs/tags/.* ]] && echo ${GITHUB_REF/refs\/tags\//} || true`
           echo "GIT_TAG=${GIT_TAG}" >> $GITHUB_OUTPUT
 
-          ZENOH_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' zenoh-backend-s3/Cargo.toml | head -n1)
+          ZENOH_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
           echo "ZENOH_VERSION=${ZENOH_VERSION}" >> $GITHUB_OUTPUT
           if [ -n "${GIT_TAG}" ]; then
             IS_RELEASE="true"
@@ -203,8 +203,7 @@ jobs:
               echo "Packaging ${MAIN_PKG_NAME}:"
               zip ${MAIN_PKG_NAME} zenohd libzplugin_*.so
               cd -
-              echo ::set-output name=MAIN_PKG_NAME::"${MAIN_PKG_NAME}"
-
+              echo "MAIN_PKG_NAME=${MAIN_PKG_NAME}" >> $GITHUB_OUTPUT
               # check if debian packages has been created and packages them in a single tgz
               if [[ -d target/${TARGET}/debian ]]; then
                 cd target/${TARGET}/debian
@@ -212,7 +211,7 @@ jobs:
                 echo "Packaging ${DEBS_PKG_NAME}:"
                 zip ${DEBS_PKG_NAME} *.deb
                 cd -
-                echo ::set-output name=DEBS_PKG_NAME::"${DEBS_PKG_NAME}"
+                echo "DEBS_PKG_NAME=${DEBS_PKG_NAME}" >> $GITHUB_OUTPUT
               fi
               ;;
             *apple*)
@@ -220,14 +219,14 @@ jobs:
               echo "Packaging ${MAIN_PKG_NAME}:"
               zip ${MAIN_PKG_NAME} zenohd libzplugin_*.dylib
               cd -
-              echo ::set-output name=MAIN_PKG_NAME::"${MAIN_PKG_NAME}"
+              echo "MAIN_PKG_NAME=${MAIN_PKG_NAME}" >> $GITHUB_OUTPUT
               ;;
             *windows*)
               cd "target/${TARGET}/release/"
               echo "Packaging ${MAIN_PKG_NAME}:"
               7z -y a "${MAIN_PKG_NAME}" zenohd.exe zplugin_*.dll
               cd -
-              echo ::set-output name=MAIN_PKG_NAME::"${MAIN_PKG_NAME}"
+              echo "MAIN_PKG_NAME=${MAIN_PKG_NAME}" >> $GITHUB_OUTPUT
               ;;
           esac
 
