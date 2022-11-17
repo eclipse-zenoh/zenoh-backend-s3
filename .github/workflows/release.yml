@@ -61,7 +61,7 @@ jobs:
           echo "GIT_TAG=${GIT_TAG}"
           echo ::set-output name=GIT_TAG::"${GIT_TAG}"
 
-          ZENOH_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' zenoh/Cargo.toml | head -n1)
+          ZENOH_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' zenoh-backend-s3/Cargo.toml | head -n1)
           echo "ZENOH_VERSION=${ZENOH_VERSION}"
           echo ::set-output name=ZENOH_VERSION::"${ZENOH_VERSION}"
           if [ -n "${GIT_TAG}" ]; then
@@ -247,7 +247,7 @@ jobs:
   publication:
     name: Release publication
     if: needs.checks.outputs.IS_RELEASE == 'true'
-    needs: [checks, builds, tests, doc]
+    needs: [checks, builds]
     runs-on: ubuntu-latest
     steps:
       - name: Download result of previous builds
