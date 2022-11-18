@@ -100,7 +100,6 @@ If successful, then the console can be accessed on http://localhost:9090.
                 read_only: false,
 
                 // strategy on storage closure, either `destroy_bucket` or `do_nothing`
-                // adminspace.permissions.write needs to be set to true to destroy the bucket on closure
                 on_closure: "destroy_bucket",
 
                 private: {
@@ -115,13 +114,6 @@ If successful, then the console can be accessed on http://localhost:9090.
         // Optionally, add the REST plugin
         rest: { http_port: 8000 }
       },
-      adminspace: {
-        // read and/or write permissions on the admin space
-        permissions: {
-          read: true,
-          write: true,
-        },
-      },
     }
     ```
   - Run the zenoh router with:  
@@ -133,7 +125,7 @@ If successful, then the console can be accessed on http://localhost:9090.
 
 When working with the AWS S3 storage, the region must be specified following the region names indicated in the [Amazon Simple Storage Service endpoints and quotas
 ](https://docs.aws.amazon.com/general/latest/gr/s3.html) documentation. The url of the endpoint is not required as the internal endpoint resolver will automatically 
-find which is the endpoint associated to the region specified.
+find which one is the endpoint associated to the region specified.
 
 All the storages associated to the volume will use the same region.
 
@@ -174,7 +166,7 @@ volumes: {
 
   - Run the zenoh router:  
     ```
-    cargo run --bin=zenohd -- --adminspace-permissions rw
+    cargo run --bin=zenohd
     ```
   - Add the "s3" backend (the "zbackend_s3" library will be loaded):
     ```
@@ -197,10 +189,10 @@ curl -X GET -H {} -d '{}' http://0.0.0.0:8000/s3/example/test
 # To delete the previous object
 curl -X DELETE -H {} -d '{}' http://0.0.0.0:8000/s3/example/test
 
-# To delete the whole storage (and the bucket if configured)
+# To delete the whole storage and the bucket if configured (note in order for this test to work, you need to setup adminspace read/write permissions)
 curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/storages/s3_storage'
 
-# To delete the whole volume
+# To delete the whole volume (note in order for this test to work, you need to setup adminspace read/write permissions)
 curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/volumes/s3'
 ```
 
