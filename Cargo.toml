@@ -59,6 +59,7 @@ futures = "0.3.25"
 async-rustls = { git = "https://github.com/smol-rs/async-rustls.git" }
 rustls-pemfile = "1.0.1"
 hyper-rustls = "0.23.1"
+hyper = "0.14.23"
 [build-dependencies]
 rustc_version = "0.4.0"
 

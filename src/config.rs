@@ -12,7 +12,21 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+use async_rustls::{
+    rustls::{
+        version::TLS13, Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
+    },
+    webpki::TrustAnchor,
+};
+use async_std::fs;
 use aws_sdk_s3::Credentials;
+use hyper::client::HttpConnector;
+use hyper_rustls::HttpsConnector;
+use serde_json::{Map, Value};
+use std::{
+    fs::File,
+    io::{BufReader, Cursor},
+};
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 use zenoh_core::zerror;
@@ -28,6 +42,13 @@ const PROP_STORAGE_READ_ONLY: &str = "read_only";
 const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
+
+// TLS properties
+const PROP_TLS: &str = "tls";
+const PROP_TLS_ROOT_CA: &str = "root_ca_certificate";
+const PROP_TLS_CLIENT_AUTH: &str = "client_auth";
+const PROP_TLS_CLIENT_PRIVATE_KEY: &str = "client_private_key";
+const PROP_TLS_CLIENT_CERTIFICATE: &str = "client_certificate";
 
 pub enum OnClosure {
     DestroyBucket,
@@ -53,6 +74,12 @@ pub enum OnClosure {
 ///            access_key: "AKIAIOSFODNN7EXAMPLE",
 ///            secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 ///        }
+///        tls: {
+///            root_ca_certificate: "./certificates/minio/ca.pem",
+///            client_auth: false,
+///            client_private_key: "./certificates/client/key.pem",
+///            client_certificate: "./certificates/client/cert.pem",
+///        },
 ///      }
 ///    },
 ///  }
@@ -73,11 +100,14 @@ pub enum OnClosure {
 /// * on_closure: the operation to be performed on the storage upon destruction, either
 ///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
 ///     `adminspace.permissions.write` must be set to true for the operation to succeed.
+/// * admin_status: the json value of the [StorageConfig]
 /// * reuse_bucket_is_enabled: the storage attempts to create the bucket but if the bucket
 ///     was already created and is owned by you then the storage is associated to that preexisting
 ///     bucket.
-/// * admin_status: the json value of the [StorageConfig]
-pub struct S3Config {
+/// * tls_client_config: optional value with the paths to the certificate authority used to
+///     validate the server's keys during the TLS handshake, as well as the client's key and
+///     certificate if mutual authentication is desired.
+pub(crate) struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
     pub path_prefix: Option<String>,
@@ -85,6 +115,7 @@ pub struct S3Config {
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
     pub reuse_bucket_is_enabled: bool,
+    pub tls_client_config: Option<TlsClientConfig>,
 }
 
 impl S3Config {
@@ -97,7 +128,7 @@ impl S3Config {
         let on_closure = S3Config::load_on_closure(config)?;
         let reuse_bucket_is_enabled = S3Config::reuse_bucket_is_enabled(config);
         let admin_status = config.to_json_value();
-
+        let tls_client_config = S3Config::load_tls_config(config).await?;
         Ok(S3Config {
             credentials,
             bucket,
@@ -106,6 +137,7 @@ impl S3Config {
             on_closure,
             admin_status,
             reuse_bucket_is_enabled,
+            tls_client_config,
         })
     }
 
@@ -190,6 +222,16 @@ impl S3Config {
             _ => false,
         }
     }
+
+    async fn load_tls_config(config: &StorageConfig) -> ZResult<Option<TlsClientConfig>> {
+        match config.volume_cfg.get(PROP_TLS) {
+            Some(serde_json::Value::Object(tls_config)) => {
+                Ok(Some(TlsClientConfig::new(tls_config).await?))
+            }
+            None => Ok(None),
+            _ => Err(zerror!("Property {PROP_TLS} is malformed.").into()),
+        }
+    }
 }
 
 fn get_private_conf<'a>(
@@ -228,5 +270,132 @@ fn get_private_conf<'a>(
             Ok(Some(private))
         }
         _ => Err(zerror!("Optional property `{}` must be a string", credit))?,
+    }
+}
+
+/// Utility to load the tls related configuration and establish proper communication with a MinIO
+/// server with TLS enabled.
+#[derive(Clone)]
+pub(crate) struct TlsClientConfig {
+    pub https_connector: HttpsConnector<HttpConnector>,
+}
+
+impl TlsClientConfig {
+    /// Creates a new instance of [TlsClientConfig] from the configuration specified in the config
+    /// file.
+    pub async fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
+        log::debug!("Loading TLS config values...");
+
+        let mut root_cert_store = RootCertStore::empty();
+        let root_ca_certificate = match tls_config
+            .get(PROP_TLS_ROOT_CA)
+            .ok_or_else(|| zerror!("Missing property {PROP_TLS_ROOT_CA}."))? {
+                serde_json::Value::String(value) => Ok(value),
+                _ => Err(zerror!("Property {PROP_TLS_ROOT_CA} must be of type string and point to the path of the root certificate."))
+            }?;
+
+        let client_auth = match tls_config.get(PROP_TLS_CLIENT_AUTH) {
+            Some(serde_json::Value::Bool(value)) => value.to_owned(),
+            Some(_) => false,
+            None => false,
+        };
+
+        TlsClientConfig::load_trust_anchors(root_ca_certificate.to_string(), &mut root_cert_store)?;
+
+        let client_config = if client_auth {
+            log::debug!("Loading client authentication key and certificate...");
+
+            let tls_client_private_key_path = match tls_config
+                .get(PROP_TLS_CLIENT_PRIVATE_KEY)
+                .ok_or_else(|| zerror!("Missing property {PROP_TLS_CLIENT_PRIVATE_KEY}."))? {
+                    serde_json::Value::String(value) => Ok(value),
+                    _ => Err(zerror!("Property {PROP_TLS_CLIENT_PRIVATE_KEY} must be of type string and point to the path of client private key."))
+                }?;
+
+            let tls_client_private_key =
+                TlsClientConfig::load_tls_key(tls_client_private_key_path.to_string()).await?;
+
+            let tls_client_certificate_path = match tls_config
+                .get(PROP_TLS_CLIENT_CERTIFICATE)
+                .ok_or_else(|| zerror!("Missing property {PROP_TLS_CLIENT_CERTIFICATE}."))? {
+                    serde_json::Value::String(value) => Ok(value),
+                    _ => Err(zerror!("Property {PROP_TLS_CLIENT_CERTIFICATE} must be of type string and point to the path of client certificate."))
+                }?;
+
+            let tls_client_certificate = TlsClientConfig::load_tls_client_certificate(
+                tls_client_certificate_path.to_string(),
+            )
+            .await?;
+
+            let certs: Vec<Certificate> =
+                rustls_pemfile::certs(&mut Cursor::new(&tls_client_certificate))
+                    .map_err(|e| zerror!(e))
+                    .map(|mut certs| certs.drain(..).map(Certificate).collect())?;
+
+            let mut keys: Vec<PrivateKey> =
+                rustls_pemfile::rsa_private_keys(&mut Cursor::new(&tls_client_private_key))
+                    .map_err(|e| zerror!(e))
+                    .map(|mut keys| keys.drain(..).map(PrivateKey).collect())?;
+
+            ClientConfig::builder()
+                .with_safe_default_cipher_suites()
+                .with_safe_default_kx_groups()
+                .with_protocol_versions(&[&TLS13])
+                .unwrap()
+                .with_root_certificates(root_cert_store)
+                .with_single_cert(certs, keys.remove(0))
+                .expect("bad certificate/key")
+        } else {
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_cert_store)
+                .with_no_client_auth()
+        };
+
+        let rustls_connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(client_config)
+            .https_only()
+            .enable_http1()
+            .build();
+        Ok(TlsClientConfig {
+            https_connector: rustls_connector,
+        })
+    }
+
+    async fn load_tls_key(client_private_key: String) -> ZResult<Vec<u8>> {
+        fs::read(client_private_key)
+            .await
+            .map_err(|e| zerror!("Invalid TLS private key file: {}", e))
+            .map(|result| {
+                if result.is_empty() {
+                    Err(zerror!("Empty TLS key.").into())
+                } else {
+                    Ok(result)
+                }
+            })?
+    }
+
+    async fn load_tls_client_certificate(client_certificate: String) -> ZResult<Vec<u8>> {
+        Ok(fs::read(client_certificate)
+            .await
+            .map_err(|e| zerror!("Invalid TLS certificate file: {}", e))?)
+    }
+
+    fn load_trust_anchors(
+        root_ca_certificate: String,
+        root_cert_store: &mut RootCertStore,
+    ) -> ZResult<()> {
+        let mut pem = BufReader::new(File::open(root_ca_certificate)?);
+        let certs = rustls_pemfile::certs(&mut pem)?;
+        let trust_anchors = certs.iter().map(|cert| {
+            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        });
+        root_cert_store.add_server_trust_anchors(trust_anchors.into_iter());
+        Ok(())
     }
 }

@@ -60,7 +60,15 @@
                 // Credentials for interacting with the S3 bucket
                 access_key: "AKIAIOSFODNN7EXAMPLE",
                 secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            }
+            },
+
+            /// Configure TLS specific parameters
+            tls: {
+              root_ca_certificate: "./certificates/minio/ca.pem",
+              client_auth: false,
+              client_private_key: "./certificates/client/key.pem",
+              client_certificate: "./certificates/client/cert.pem",
+            },
           }
         },
       }

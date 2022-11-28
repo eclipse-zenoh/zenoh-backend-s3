@@ -14,12 +14,7 @@
 
 use std::convert::TryFrom;
 use std::fmt;
-use std::io::{BufReader};
 
-use async_rustls::rustls::{
-    ClientConfig, OwnedTrustAnchor, RootCertStore,
-};
-use async_rustls::webpki::TrustAnchor;
 use aws_sdk_s3::model::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
@@ -36,35 +31,15 @@ use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 use zenoh_core::zerror;
 
+use crate::config::TlsClientConfig;
 use crate::utils::{S3Key, S3Value};
 
 /// Client to communicate with the S3 storage.
-pub struct S3Client {
+pub(crate) struct S3Client {
     client: Client,
     bucket: String,
     region: Option<String>,
 }
-
-const ROOT_CERT: &str = "-----BEGIN CERTIFICATE-----
-MIIDSzCCAjOgAwIBAgIIb3IQ5WCPrycwDQYJKoZIhvcNAQELBQAwIDEeMBwGA1UE
-AxMVbWluaWNhIHJvb3QgY2EgNmY3MjEwMCAXDTIyMTEyNDE0MzU0NloYDzIxMjIx
-MTI0MTQzNTQ2WjAgMR4wHAYDVQQDExVtaW5pY2Egcm9vdCBjYSA2ZjcyMTAwggEi
-MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDGPawfrsfe0SbwObXVErV2gAAB
-WPt+I0VsVOn4ZuMM9luOpoqamCyDhZOXHtsO/jZ+Ty++fl1VmGXvVuqXZhDvpJ7v
-5NPQDWwCRF2az53WRKHFvmAQsI50FtAFij7pPybXOHNujVkikQaczxxLctTwMiQO
-+JhwXmq+SA4Sih8UaO4YegzmSkmq3Jf+m/XkWDFa7oJmiGUJ8FTwz9+yagaXcZSq
-HmXPhsGT1dCI4dVyXYS4BS95EkGfPsluwpYqEtiX50ORO1ucsCcQerdQd4UFMrlB
-Y2gXJMihNa3Sm0etFXIu/Z6LzuxIUdl7k9w2SDHtXioZkf1Qi8LyvkUIxr5xAgMB
-AAGjgYYwgYMwDgYDVR0PAQH/BAQDAgKEMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggr
-BgEFBQcDAjASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBSPyQs5PZEQLd1V
-6HskgtP+x9PvVTAfBgNVHSMEGDAWgBSPyQs5PZEQLd1V6HskgtP+x9PvVTANBgkq
-hkiG9w0BAQsFAAOCAQEApEs6We6h+d3MKNj/IncGWYpo4ctETGC+8fdA5UmNjoaO
-Qxt6uN0Jkl7aIXRIRwz9LAfZrhU3kEdFI7cGCPlMjDY0GTV4lpSSZbNYmHr7Yc3H
-rMA64VVBEza9SDBZr6v/jy08Ayv2pBxjkwCd+7ckJ535K6I1l3rIiiQhoSmlrMd7
-mBXZEs3i3ULOxVq0TDz64aEwE5nq04htTBk0O0XKub9Ftc9RpqgWPL0Os40SojWt
-rSI2H1WTZQXNrGF+BVJLS0ApEmNwYKCM8OW9tpCs5VLSe+gVrKU2VThrtnJsdaio
-vep8VUEYvKZnb8T7Ceka95JZjOw0ZzxcLkJTnRCZrg==
------END CERTIFICATE-----";
 
 impl S3Client {
     /// Creates a new instance of the [S3Client].
@@ -78,11 +53,13 @@ impl S3Client {
     ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
     ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
     ///     to retrieve the endpoint based on the specified region.
+    /// * `connector`: optional https connector  
     pub async fn new(
         credentials: Credentials,
         bucket: String,
         region: Option<String>,
         endpoint: Option<String>,
+        tls_config: Option<TlsClientConfig>,
     ) -> Self {
         let mut config_loader =
             aws_config::ConfigLoader::default().credentials_provider(credentials);
@@ -109,37 +86,17 @@ impl S3Client {
             }
         };
 
-        let mut root_cert_store = RootCertStore::empty();
-
-        let mut pem = BufReader::new(ROOT_CERT.as_bytes());
-        let certs = rustls_pemfile::certs(&mut pem).unwrap();
-        let trust_anchors = certs.iter().map(|cert| {
-            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        });
-
-        root_cert_store.add_server_trust_anchors(trust_anchors.into_iter());
-
-        let cc = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth();
-
-        let rustls_connector = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(cc.clone())
-            .https_only()
-            .enable_http1()
-            .build();
-
         let config = &config_loader.load().await;
-        let client = Client::from_conf_conn(
-            config.into(),
-            hyper_ext::Adapter::builder().build(rustls_connector),
-        );
+
+        let client = if let Some(tls_config) = tls_config {
+            Client::from_conf_conn(
+                config.into(),
+                hyper_ext::Adapter::builder().build(tls_config.https_connector),
+            )
+        } else {
+            Client::new(config)
+        };
+
         S3Client {
             client,
             bucket: bucket.to_string(),

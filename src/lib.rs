@@ -115,6 +115,7 @@ impl Volume for S3Backend {
             config.bucket.to_owned(),
             self.region.to_owned(),
             self.endpoint.to_owned(),
+            config.tls_client_config.to_owned(),
         )
         .await;
 
