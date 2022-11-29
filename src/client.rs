@@ -53,7 +53,7 @@ impl S3Client {
     ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
     ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
     ///     to retrieve the endpoint based on the specified region.
-    /// * `connector`: optional https connector  
+    /// * `tls_config`: optional TlsClientConfig to enable TLS security.
     pub async fn new(
         credentials: Credentials,
         bucket: String,
