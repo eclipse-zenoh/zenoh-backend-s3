@@ -14,7 +14,7 @@
 
 use async_rustls::{
     rustls::{
-        version::TLS13, Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
+        version::{TLS13, TLS12}, Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
     },
     webpki::TrustAnchor,
 };
@@ -340,7 +340,7 @@ impl TlsClientConfig {
             ClientConfig::builder()
                 .with_safe_default_cipher_suites()
                 .with_safe_default_kx_groups()
-                .with_protocol_versions(&[&TLS13])
+                .with_protocol_versions(&[&TLS13, &TLS12])
                 .unwrap()
                 .with_root_certificates(root_cert_store)
                 .with_single_cert(certs, keys.remove(0))
