@@ -208,15 +208,16 @@ curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manage
 
 In order to establish secure communication through HTTPS we need to provide at least the server's certificate authority (for server side authentication) and the client's key and certificate if we want to enable client authentication as well.
 
-As shown above in the example configuration file, in order to enable TLS we can specify these parameters inside the storage.volume configuration depending on the modality we need to set up (one way authentication or two way authentication).
+As shown above in the example configuration file, in order to enable TLS we can specify those parameters inside the storage::volume configuration depending on the modality we need to set up (one way authentication or two way authentication).
 
 ### One way authentication 
 
 For one way authentication, we need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys. The other fields related to client side authentication can be disregarded or you can set `client_auth` to false in order to be more explicit.
 Example:
-```
+```json
 tls: {
   root_ca_certificate: "./certificates/minio/ca.pem",
+  client_auth: false,
 },
 ```
 
@@ -224,7 +225,7 @@ tls: {
 
 As mentioned, for two way authentication, we not only need to enable the root certificate to validate the server keys but we also need to provide a client private key and a client certificate. The parameter `client_auth` needs to be set to `true` and the paths to the client's key and certificate needs to be set, where the paths are relative to the path from where we are executing `zenohd`. 
 
-```
+```json
 tls: {
   root_ca_certificate: "./certificates/minio/ca.pem",
   client_auth: true,
@@ -264,4 +265,3 @@ And then build the backend with:
 ```bash
 $ cargo build --release --all-targets
 ```
-
