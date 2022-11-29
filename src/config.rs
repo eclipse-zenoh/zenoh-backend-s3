@@ -14,7 +14,8 @@
 
 use async_rustls::{
     rustls::{
-        version::{TLS13, TLS12}, Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
+        version::{TLS12, TLS13},
+        Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
     },
     webpki::TrustAnchor,
 };
