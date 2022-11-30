@@ -13,21 +13,14 @@
 //
 
 use async_rustls::{
-    rustls::{
-        version::{TLS12, TLS13},
-        Certificate, ClientConfig, OwnedTrustAnchor, PrivateKey, RootCertStore,
-    },
+    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
     webpki::TrustAnchor,
 };
-use async_std::fs;
 use aws_sdk_s3::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use serde_json::{Map, Value};
-use std::{
-    fs::File,
-    io::{BufReader, Cursor},
-};
+use std::{fs::File, io::BufReader};
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 use zenoh_core::zerror;
@@ -47,9 +40,6 @@ const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 // TLS properties
 const PROP_TLS: &str = "tls";
 const PROP_TLS_ROOT_CA: &str = "root_ca_certificate";
-const PROP_TLS_CLIENT_AUTH: &str = "client_auth";
-const PROP_TLS_CLIENT_PRIVATE_KEY: &str = "client_private_key";
-const PROP_TLS_CLIENT_CERTIFICATE: &str = "client_certificate";
 
 pub enum OnClosure {
     DestroyBucket,
@@ -227,7 +217,7 @@ impl S3Config {
     async fn load_tls_config(config: &StorageConfig) -> ZResult<Option<TlsClientConfig>> {
         match config.volume_cfg.get(PROP_TLS) {
             Some(serde_json::Value::Object(tls_config)) => {
-                Ok(Some(TlsClientConfig::new(tls_config).await?))
+                Ok(Some(TlsClientConfig::new(tls_config)?))
             }
             None => Ok(None),
             _ => Err(zerror!("Property {PROP_TLS} is malformed.").into()),
@@ -284,7 +274,7 @@ pub(crate) struct TlsClientConfig {
 impl TlsClientConfig {
     /// Creates a new instance of [TlsClientConfig] from the configuration specified in the config
     /// file.
-    pub async fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
+    pub fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
         log::debug!("Loading TLS config values...");
 
         let mut root_cert_store = RootCertStore::empty();
@@ -295,63 +285,12 @@ impl TlsClientConfig {
                 _ => Err(zerror!("Property {PROP_TLS_ROOT_CA} must be of type string and point to the path of the root certificate."))
             }?;
 
-        let client_auth = match tls_config.get(PROP_TLS_CLIENT_AUTH) {
-            Some(serde_json::Value::Bool(value)) => value.to_owned(),
-            Some(_) => false,
-            None => false,
-        };
-
         TlsClientConfig::load_trust_anchors(root_ca_certificate.to_string(), &mut root_cert_store)?;
 
-        let client_config = if client_auth {
-            log::debug!("Loading client authentication key and certificate...");
-
-            let tls_client_private_key_path = match tls_config
-                .get(PROP_TLS_CLIENT_PRIVATE_KEY)
-                .ok_or_else(|| zerror!("Missing property {PROP_TLS_CLIENT_PRIVATE_KEY}."))? {
-                    serde_json::Value::String(value) => Ok(value),
-                    _ => Err(zerror!("Property {PROP_TLS_CLIENT_PRIVATE_KEY} must be of type string and point to the path of client private key."))
-                }?;
-
-            let tls_client_private_key =
-                TlsClientConfig::load_tls_key(tls_client_private_key_path.to_string()).await?;
-
-            let tls_client_certificate_path = match tls_config
-                .get(PROP_TLS_CLIENT_CERTIFICATE)
-                .ok_or_else(|| zerror!("Missing property {PROP_TLS_CLIENT_CERTIFICATE}."))? {
-                    serde_json::Value::String(value) => Ok(value),
-                    _ => Err(zerror!("Property {PROP_TLS_CLIENT_CERTIFICATE} must be of type string and point to the path of client certificate."))
-                }?;
-
-            let tls_client_certificate = TlsClientConfig::load_tls_client_certificate(
-                tls_client_certificate_path.to_string(),
-            )
-            .await?;
-
-            let certs: Vec<Certificate> =
-                rustls_pemfile::certs(&mut Cursor::new(&tls_client_certificate))
-                    .map_err(|e| zerror!(e))
-                    .map(|mut certs| certs.drain(..).map(Certificate).collect())?;
-
-            let mut keys: Vec<PrivateKey> =
-                rustls_pemfile::rsa_private_keys(&mut Cursor::new(&tls_client_private_key))
-                    .map_err(|e| zerror!(e))
-                    .map(|mut keys| keys.drain(..).map(PrivateKey).collect())?;
-
-            ClientConfig::builder()
-                .with_safe_default_cipher_suites()
-                .with_safe_default_kx_groups()
-                .with_protocol_versions(&[&TLS13, &TLS12])
-                .unwrap()
-                .with_root_certificates(root_cert_store)
-                .with_single_cert(certs, keys.remove(0))
-                .expect("bad certificate/key")
-        } else {
-            ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_cert_store)
-                .with_no_client_auth()
-        };
+        let client_config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_cert_store)
+            .with_no_client_auth();
 
         let rustls_connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(client_config)
@@ -361,25 +300,6 @@ impl TlsClientConfig {
         Ok(TlsClientConfig {
             https_connector: rustls_connector,
         })
-    }
-
-    async fn load_tls_key(client_private_key: String) -> ZResult<Vec<u8>> {
-        fs::read(client_private_key)
-            .await
-            .map_err(|e| zerror!("Invalid TLS private key file: {}", e))
-            .map(|result| {
-                if result.is_empty() {
-                    Err(zerror!("Empty TLS key.").into())
-                } else {
-                    Ok(result)
-                }
-            })?
-    }
-
-    async fn load_tls_client_certificate(client_certificate: String) -> ZResult<Vec<u8>> {
-        Ok(fs::read(client_certificate)
-            .await
-            .map_err(|e| zerror!("Invalid TLS certificate file: {}", e))?)
     }
 
     fn load_trust_anchors(
