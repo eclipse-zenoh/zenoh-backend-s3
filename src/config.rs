@@ -88,9 +88,6 @@ pub enum OnClosure {
 /// * reuse_bucket_is_enabled: the storage attempts to create the bucket but if the bucket
 ///     was already created and is owned by you then the storage is associated to that preexisting
 ///     bucket.
-/// * tls_client_config: optional value with the paths to the certificate authority used to
-///     validate the server's keys during the TLS handshake, as well as the client's key and
-///     certificate if mutual authentication is desired.
 pub(crate) struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
