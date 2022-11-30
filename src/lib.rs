@@ -20,7 +20,7 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use client::S3Client;
-use config::S3Config;
+use config::{S3Config, TlsClientConfig};
 use utils::{S3Key, S3Value};
 
 use futures::future::join_all;
@@ -40,6 +40,9 @@ use zenoh_core::zerror;
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 pub const PROP_S3_REGION: &str = "region";
+
+// TLS properties
+const PROP_TLS: &str = "tls";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
 // operations.
@@ -76,10 +79,13 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
         .map(|(k, v)| (k, serde_json::Value::String(v)))
         .collect();
 
+    let tls_config = load_tls_config(&config)?;
+
     Ok(Box::new(S3Backend {
         admin_status,
         endpoint,
         region,
+        tls_config,
     }))
 }
 
@@ -94,10 +100,19 @@ fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResul
     }
 }
 
+fn load_tls_config(config: &VolumeConfig) -> ZResult<Option<TlsClientConfig>> {
+    match config.rest.get(PROP_TLS) {
+        Some(serde_json::Value::Object(tls_config)) => Ok(Some(TlsClientConfig::new(tls_config)?)),
+        None => Ok(None),
+        _ => Err(zerror!("Property {PROP_TLS} is malformed.").into()),
+    }
+}
+
 pub struct S3Backend {
     admin_status: serde_json::Value,
     endpoint: Option<String>,
     region: Option<String>,
+    tls_config: Option<TlsClientConfig>,
 }
 
 #[async_trait]
@@ -115,7 +130,7 @@ impl Volume for S3Backend {
             config.bucket.to_owned(),
             self.region.to_owned(),
             self.endpoint.to_owned(),
-            config.tls_client_config.to_owned(),
+            self.tls_config.to_owned(),
         )
         .await;
 

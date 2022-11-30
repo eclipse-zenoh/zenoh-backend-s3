@@ -38,7 +38,6 @@ const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 
 // TLS properties
-const PROP_TLS: &str = "tls";
 const PROP_TLS_ROOT_CA: &str = "root_ca_certificate";
 
 pub enum OnClosure {
@@ -65,12 +64,6 @@ pub enum OnClosure {
 ///            access_key: "AKIAIOSFODNN7EXAMPLE",
 ///            secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 ///        }
-///        tls: {
-///            root_ca_certificate: "./certificates/minio/ca.pem",
-///            client_auth: false,
-///            client_private_key: "./certificates/client/key.pem",
-///            client_certificate: "./certificates/client/cert.pem",
-///        },
 ///      }
 ///    },
 ///  }
@@ -106,7 +99,6 @@ pub(crate) struct S3Config {
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
     pub reuse_bucket_is_enabled: bool,
-    pub tls_client_config: Option<TlsClientConfig>,
 }
 
 impl S3Config {
@@ -119,7 +111,6 @@ impl S3Config {
         let on_closure = S3Config::load_on_closure(config)?;
         let reuse_bucket_is_enabled = S3Config::reuse_bucket_is_enabled(config);
         let admin_status = config.to_json_value();
-        let tls_client_config = S3Config::load_tls_config(config).await?;
         Ok(S3Config {
             credentials,
             bucket,
@@ -128,7 +119,6 @@ impl S3Config {
             on_closure,
             admin_status,
             reuse_bucket_is_enabled,
-            tls_client_config,
         })
     }
 
@@ -211,16 +201,6 @@ impl S3Config {
         match config.volume_cfg.get(PROP_STORAGE_REUSE_BUCKET) {
             Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
             _ => false,
-        }
-    }
-
-    async fn load_tls_config(config: &StorageConfig) -> ZResult<Option<TlsClientConfig>> {
-        match config.volume_cfg.get(PROP_TLS) {
-            Some(serde_json::Value::Object(tls_config)) => {
-                Ok(Some(TlsClientConfig::new(tls_config)?))
-            }
-            None => Ok(None),
-            _ => Err(zerror!("Property {PROP_TLS} is malformed.").into()),
         }
     }
 }
