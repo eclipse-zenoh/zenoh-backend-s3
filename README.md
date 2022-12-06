@@ -70,6 +70,13 @@ If successful, then the console can be accessed on http://localhost:9090.
                     access_key: "AKIAIOSFODNN7EXAMPLE",
                     secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
                 }
+
+                // Optional TLS specific parameters to enable HTTPS with MinIO. Configuration shared by
+                // all the associated storages.
+                tls: {
+                  // Certificate authority to authenticate the server.
+                  root_ca_certificate: "./certificates/minio/ca.pem",
+                },
             }
           },
           storages: {
@@ -196,7 +203,17 @@ curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manage
 curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/volumes/s3'
 ```
 
+## **Enabling TLS on MinIO**
 
+In order to establish secure communication through HTTPS we need to provide a certificate of the certificate authority that validates the server credentials.
+
+We need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
+Example:
+```json
+tls: {
+  root_ca_certificate: "./certificates/minio/ca.pem",
+},
+```
 
 
 -------------------------------
@@ -228,4 +245,3 @@ And then build the backend with:
 ```bash
 $ cargo build --release --all-targets
 ```
-
