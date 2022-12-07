@@ -64,18 +64,11 @@ If successful, then the console can be accessed on http://localhost:9090.
                 // case the endpoint will be resolved automatically.
                 url: "https://s3.eu-west-1.amazonaws.com",
 
-                private: {
-                    // Credentials for interacting with the S3 volume. They may differ from the storage
-                    // credentials.
-                    access_key: "AKIAIOSFODNN7EXAMPLE",
-                    secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                }
-
                 // Optional TLS specific parameters to enable HTTPS with MinIO. Configuration shared by
                 // all the associated storages.
                 tls: {
                   // Certificate authority to authenticate the server.
-                  root_ca_certificate: "./certificates/minio/ca.pem",
+                  root_ca_certificate: "/home/user/certificates/minio/ca.pem",
                 },
             }
           },
@@ -137,37 +130,31 @@ find which one is the endpoint associated to the region specified.
 All the storages associated to the volume will use the same region.
 
 The volumes section on the config file will look like:
-```
-volumes: {
-  s3: {
-      // AWS region to which connect
-      region: "eu-west-1",
-
-      private: {
-          access_key: "EXAMPLEAWSS3ACCESSKEY",
-          secret_key: "e/DdIEwGOMfsA10RADoaOw7kNAwEXAMPLEKEY",
-      }
-  }
-},
-...
+```json
+storage_manager {
+  volumes: {
+    s3: {
+        // AWS region to which connect
+        region: "eu-west-1",
+    }
+  },
+  ...
+}
 ```
 **Volume configuration when working with MinIO**
 
 Inversely, when working with a MinIO S3 storage, then we need to specify the endpoint of the storage rather than the region, which will be ignored by the MinIO server. We can save ourselves to specify the region in that case.
 
 The volumes section on the config file will look like:
-```
-volumes: {
-  s3: {
-      url: "http://localhost:9000",
-
-      private: {
-          access_key: "AKIAIOSFODNN7EXAMPLE",
-          secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-      }
-  }
-},
-...
+```json
+storage_manager {
+  volumes: {
+    s3: {
+        url: "http://localhost:9000",
+    }
+  },
+  ...
+}
 ```
 ### **Setup at runtime via `curl` commands on the admin space**
 
@@ -207,14 +194,49 @@ curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manage
 
 In order to establish secure communication through HTTPS we need to provide a certificate of the certificate authority that validates the server credentials.
 
-We need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
+TLS certificates can be generated as explained in the [zenoh documentation using Minica](https://zenoh.io/docs/manual/tls/).  When running 
+```
+minica --domains localhost
+```
+a private key, a public certificate and a certificate authority certificate is generated:
+
+```
+└── certificates
+    ├── localhost
+    │   ├── cert.pem
+    │   └── key.pem
+    ├── minica-key.pem
+    └── minica.pem
+```
+
+On the config file, we need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
 Example:
 ```json
 tls: {
-  root_ca_certificate: "./certificates/minio/ca.pem",
+  root_ca_certificate: "/home/user/certificates/minio/minica.pem",
 },
 ```
+Here, the `root_ca_certificate` corresponds to the generated *minica.pem* file.
 
+The *cert.pem* and *key.pem* files corresponding to the public certificate and private key respectively should be stored in the certs folder of the MinIO configuration directory (as specified in the [MinIO documentation](https://min.io/docs/minio/linux/operations/network-encryption.html#enabling-tls)) as *public.crt* and *private.key* respectively.
+
+*Note: do not forget to modify the endpoint protocol, for instance from `http://localhost:9090` to `https://localhost:9090`*
+
+The volume configuration should then look like:
+```json
+storage_manager: {
+  volumes: {
+    s3: {
+        // Endpoint where the S3 server is located
+        url: "https://localhost:9000",
+
+        // Configure TLS specific parameters
+        tls: {
+          root_ca_certificate: "/home/user/certificates/minio_certs/minica.pem",
+        },
+    }
+  },
+```
 
 -------------------------------
 ## How to build it
