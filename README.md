@@ -130,7 +130,7 @@ find which one is the endpoint associated to the region specified.
 All the storages associated to the volume will use the same region.
 
 The volumes section on the config file will look like:
-```json
+```
 storage_manager {
   volumes: {
     s3: {
@@ -146,7 +146,7 @@ storage_manager {
 Inversely, when working with a MinIO S3 storage, then we need to specify the endpoint of the storage rather than the region, which will be ignored by the MinIO server. We can save ourselves to specify the region in that case.
 
 The volumes section on the config file will look like:
-```json
+```
 storage_manager {
   volumes: {
     s3: {
@@ -211,7 +211,7 @@ a private key, a public certificate and a certificate authority certificate is g
 
 On the config file, we need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
 Example:
-```json
+```
 tls: {
   root_ca_certificate: "/home/user/certificates/minio/minica.pem",
 },
@@ -223,7 +223,7 @@ The *cert.pem* and *key.pem* files corresponding to the public certificate and p
 *Note: do not forget to modify the endpoint protocol, for instance from `http://localhost:9090` to `https://localhost:9090`*
 
 The volume configuration should then look like:
-```json
+```
 storage_manager: {
   volumes: {
     s3: {
