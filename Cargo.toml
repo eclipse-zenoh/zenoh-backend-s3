@@ -14,6 +14,8 @@
 [package]
 name = "zenoh_backend_s3"
 version = "0.7.0-rc"
+repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
+homepage = "http://zenoh.io"
 authors = [
     "kydos <angelo@icorsaro.net>",
     "Julien Enoch <julien@enoch.fr>",
@@ -22,10 +24,13 @@ authors = [
     "Darius Maitia <darius@zettascale.tech>",
 ]
 edition = "2018"
+license = " EPL-2.0 OR Apache-2.0"
+categories = ["network-programming", "database"]
+description = "Backend for Zenoh using AWS S3 API"
 
 [lib]
 name = "zbackend_s3"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 zenoh_backend_traits = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
