@@ -22,7 +22,7 @@ This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to imple
 
 Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`zbackend_s3`**.
 
-<!-- :point_right: **Download stable versions:** https://download.eclipse.org/zenoh/zenoh-backend-rocksdb/ -->
+:point_right: **Install latest release:** see [below](#How-to-install-it)
 
 :point_right: **Build "master" branch:** see [below](#How-to-build-it)
 
@@ -244,6 +244,32 @@ storage_manager: {
     }
   },
 ```
+
+-------------------------------
+## How to install it
+
+To install the latest release of this backend library, you can do as follows:
+
+### Manual installation (all platforms)
+
+All release packages can be downloaded from:  
+ - https://download.eclipse.org/zenoh/zenoh-backend-s3/latest/   
+
+Each subdirectory has the name of the Rust target. See the platforms each target corresponds to on https://doc.rust-lang.org/stable/rustc/platform-support.html
+
+Choose your platform and download the `.zip` file.  
+Unzip it in the same directory than `zenohd` or to any directory where it can find the backend library (e.g. /usr/lib or ~/.zenoh/lib)
+
+### Linux Debian
+
+Add Eclipse Zenoh private repository to the sources list, and install the `zenoh-backend-s3` package:
+
+```bash
+echo "deb [trusted=yes] https://download.eclipse.org/zenoh/debian-repo/ /" | sudo tee -a /etc/apt/sources.list > /dev/null
+sudo apt update
+sudo apt install zenoh-backend-s3
+```
+
 
 -------------------------------
 ## How to build it

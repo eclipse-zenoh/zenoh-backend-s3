@@ -12,7 +12,7 @@
 #   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 #
 [package]
-name = "zenoh_backend_s3"
+name = "zenoh-backend-s3"
 version = "0.7.0-rc"
 repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
 homepage = "http://zenoh.io"
