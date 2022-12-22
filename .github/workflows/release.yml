@@ -263,7 +263,7 @@ jobs:
           ssh -o "StrictHostKeyChecking=no" ${SSH_TARGET} ls -al
           echo "---- list artifacts to upload:"
           ls -R ARTIFACTS || true
-          DOWNLOAD_DIR=${ECLIPSE_BASE_DIR}/zenoh/${{ needs.checks.outputs.ZENOH_VERSION }}
+          DOWNLOAD_DIR=${ECLIPSE_BASE_DIR}/zenoh-backend-s3/${{ needs.checks.outputs.ZENOH_VERSION }}
           echo "---- copy artifacts into ${DOWNLOAD_DIR}"
           ssh -o "StrictHostKeyChecking=no" ${SSH_TARGET} mkdir -p ${DOWNLOAD_DIR}
           cd ARTIFACTS
