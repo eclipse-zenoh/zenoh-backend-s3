@@ -12,7 +12,15 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+use async_rustls::{
+    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
+    webpki::TrustAnchor,
+};
 use aws_sdk_s3::Credentials;
+use hyper::client::HttpConnector;
+use hyper_rustls::HttpsConnector;
+use serde_json::{Map, Value};
+use std::{fs::File, io::BufReader};
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 use zenoh_core::zerror;
@@ -28,6 +36,9 @@ const PROP_STORAGE_READ_ONLY: &str = "read_only";
 const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
+
+// TLS properties
+const PROP_TLS_ROOT_CA: &str = "root_ca_certificate";
 
 pub enum OnClosure {
     DestroyBucket,
@@ -73,11 +84,11 @@ pub enum OnClosure {
 /// * on_closure: the operation to be performed on the storage upon destruction, either
 ///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
 ///     `adminspace.permissions.write` must be set to true for the operation to succeed.
+/// * admin_status: the json value of the [StorageConfig]
 /// * reuse_bucket_is_enabled: the storage attempts to create the bucket but if the bucket
 ///     was already created and is owned by you then the storage is associated to that preexisting
 ///     bucket.
-/// * admin_status: the json value of the [StorageConfig]
-pub struct S3Config {
+pub(crate) struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
     pub path_prefix: Option<String>,
@@ -97,7 +108,6 @@ impl S3Config {
         let on_closure = S3Config::load_on_closure(config)?;
         let reuse_bucket_is_enabled = S3Config::reuse_bucket_is_enabled(config);
         let admin_status = config.to_json_value();
-
         Ok(S3Config {
             credentials,
             bucket,
@@ -228,5 +238,62 @@ fn get_private_conf<'a>(
             Ok(Some(private))
         }
         _ => Err(zerror!("Optional property `{}` must be a string", credit))?,
+    }
+}
+
+/// Utility to load the tls related configuration and establish proper communication with a MinIO
+/// server with TLS enabled.
+#[derive(Clone)]
+pub(crate) struct TlsClientConfig {
+    pub https_connector: HttpsConnector<HttpConnector>,
+}
+
+impl TlsClientConfig {
+    /// Creates a new instance of [TlsClientConfig] from the configuration specified in the config
+    /// file.
+    pub fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
+        log::debug!("Loading TLS config values...");
+
+        let mut root_cert_store = RootCertStore::empty();
+        let root_ca_certificate = match tls_config
+            .get(PROP_TLS_ROOT_CA)
+            .ok_or_else(|| zerror!("Missing property {PROP_TLS_ROOT_CA}."))? {
+                serde_json::Value::String(value) => Ok(value),
+                _ => Err(zerror!("Property {PROP_TLS_ROOT_CA} must be of type string and point to the path of the root certificate."))
+            }?;
+
+        TlsClientConfig::load_trust_anchors(root_ca_certificate.to_string(), &mut root_cert_store)?;
+
+        let client_config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_cert_store)
+            .with_no_client_auth();
+
+        let rustls_connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(client_config)
+            .https_only()
+            .enable_http1()
+            .build();
+        Ok(TlsClientConfig {
+            https_connector: rustls_connector,
+        })
+    }
+
+    fn load_trust_anchors(
+        root_ca_certificate: String,
+        root_cert_store: &mut RootCertStore,
+    ) -> ZResult<()> {
+        let mut pem = BufReader::new(File::open(root_ca_certificate)?);
+        let certs = rustls_pemfile::certs(&mut pem)?;
+        let trust_anchors = certs.iter().map(|cert| {
+            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        });
+        root_cert_store.add_server_trust_anchors(trust_anchors.into_iter());
+        Ok(())
     }
 }

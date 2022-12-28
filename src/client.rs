@@ -23,6 +23,7 @@ use aws_sdk_s3::output::{
 };
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
+use aws_smithy_client::hyper_ext;
 use zenoh::prelude::{Encoding, KeyExpr};
 use zenoh::sample::Sample;
 use zenoh::value::Value;
@@ -30,10 +31,11 @@ use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 use zenoh_core::zerror;
 
+use crate::config::TlsClientConfig;
 use crate::utils::{S3Key, S3Value};
 
 /// Client to communicate with the S3 storage.
-pub struct S3Client {
+pub(crate) struct S3Client {
     client: Client,
     bucket: String,
     region: Option<String>,
@@ -51,11 +53,13 @@ impl S3Client {
     ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
     ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
     ///     to retrieve the endpoint based on the specified region.
+    /// * `tls_config`: optional TlsClientConfig to enable TLS security.
     pub async fn new(
         credentials: Credentials,
         bucket: String,
         region: Option<String>,
         endpoint: Option<String>,
+        tls_config: Option<TlsClientConfig>,
     ) -> Self {
         let mut config_loader =
             aws_config::ConfigLoader::default().credentials_provider(credentials);
@@ -82,7 +86,16 @@ impl S3Client {
             }
         };
 
-        let client = Client::new(&config_loader.load().await);
+        let config = &config_loader.load().await;
+
+        let client = if let Some(tls_config) = tls_config {
+            Client::from_conf_conn(
+                config.into(),
+                hyper_ext::Adapter::builder().build(tls_config.https_connector),
+            )
+        } else {
+            Client::new(config)
+        };
 
         S3Client {
             client,

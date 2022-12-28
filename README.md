@@ -5,7 +5,14 @@
 [![License](https://img.shields.io/badge/License-EPL%202.0-blue)](https://choosealicense.com/licenses/epl-2.0/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-# S3 backend for Eclipse zenoh
+# Eclipse Zenoh
+The Eclipse Zenoh: Zero Overhead Pub/sub, Store/Query and Compute.
+
+Zenoh (pronounce _/zeno/_) unifies data in motion, data at rest and computations. It carefully blends traditional pub/sub with geo-distributed storages, queries and computations, while retaining a level of time and space efficiency that is well beyond any of the mainstream stacks.
+
+Check the website [zenoh.io](http://zenoh.io) and the [roadmap](https://github.com/eclipse-zenoh/roadmap) for more detailed information.
+
+# S3 backend
 
 In zenoh a backend is a storage technology (such as DBMS, time-series database, file system...) alowing to store the
 keys/values publications made via zenoh and return them on queries.
@@ -15,7 +22,7 @@ This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to imple
 
 Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`zbackend_s3`**.
 
-<!-- :point_right: **Download stable versions:** https://download.eclipse.org/zenoh/zenoh-backend-rocksdb/ -->
+:point_right: **Install latest release:** see [below](#How-to-install-it)
 
 :point_right: **Build "master" branch:** see [below](#How-to-build-it)
 
@@ -64,12 +71,12 @@ If successful, then the console can be accessed on http://localhost:9090.
                 // case the endpoint will be resolved automatically.
                 url: "https://s3.eu-west-1.amazonaws.com",
 
-                private: {
-                    // Credentials for interacting with the S3 volume. They may differ from the storage
-                    // credentials.
-                    access_key: "AKIAIOSFODNN7EXAMPLE",
-                    secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                }
+                // Optional TLS specific parameters to enable HTTPS with MinIO. Configuration shared by
+                // all the associated storages.
+                tls: {
+                  // Certificate authority to authenticate the server.
+                  root_ca_certificate: "/home/user/certificates/minio/ca.pem",
+                },
             }
           },
           storages: {
@@ -131,18 +138,15 @@ All the storages associated to the volume will use the same region.
 
 The volumes section on the config file will look like:
 ```
-volumes: {
-  s3: {
-      // AWS region to which connect
-      region: "eu-west-1",
-
-      private: {
-          access_key: "EXAMPLEAWSS3ACCESSKEY",
-          secret_key: "e/DdIEwGOMfsA10RADoaOw7kNAwEXAMPLEKEY",
-      }
-  }
-},
-...
+storage_manager {
+  volumes: {
+    s3: {
+        // AWS region to which connect
+        region: "eu-west-1",
+    }
+  },
+  ...
+}
 ```
 **Volume configuration when working with MinIO**
 
@@ -150,17 +154,14 @@ Inversely, when working with a MinIO S3 storage, then we need to specify the end
 
 The volumes section on the config file will look like:
 ```
-volumes: {
-  s3: {
-      url: "http://localhost:9000",
-
-      private: {
-          access_key: "AKIAIOSFODNN7EXAMPLE",
-          secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-      }
-  }
-},
-...
+storage_manager {
+  volumes: {
+    s3: {
+        url: "http://localhost:9000",
+    }
+  },
+  ...
+}
 ```
 ### **Setup at runtime via `curl` commands on the admin space**
 
@@ -196,15 +197,88 @@ curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manage
 curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/volumes/s3'
 ```
 
+## **Enabling TLS on MinIO**
 
+In order to establish secure communication through HTTPS we need to provide a certificate of the certificate authority that validates the server credentials.
+
+TLS certificates can be generated as explained in the [zenoh documentation using Minica](https://zenoh.io/docs/manual/tls/).  When running 
+```
+minica --domains localhost
+```
+a private key, a public certificate and a certificate authority certificate is generated:
+
+```
+└── certificates
+    ├── localhost
+    │   ├── cert.pem
+    │   └── key.pem
+    ├── minica-key.pem
+    └── minica.pem
+```
+
+On the config file, we need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
+Example:
+```
+tls: {
+  root_ca_certificate: "/home/user/certificates/minio/minica.pem",
+},
+```
+Here, the `root_ca_certificate` corresponds to the generated *minica.pem* file.
+
+The *cert.pem* and *key.pem* files corresponding to the public certificate and private key respectively should be stored in the certs folder of the MinIO configuration directory (as specified in the [MinIO documentation](https://min.io/docs/minio/linux/operations/network-encryption.html#enabling-tls)) as *public.crt* and *private.key* respectively.
+
+*Note: do not forget to modify the endpoint protocol, for instance from `http://localhost:9090` to `https://localhost:9090`*
+
+The volume configuration should then look like:
+```
+storage_manager: {
+  volumes: {
+    s3: {
+        // Endpoint where the S3 server is located
+        url: "https://localhost:9000",
+
+        // Configure TLS specific parameters
+        tls: {
+          root_ca_certificate: "/home/user/certificates/minio_certs/minica.pem",
+        },
+    }
+  },
+```
+
+-------------------------------
+## How to install it
+
+To install the latest release of this backend library, you can do as follows:
+
+### Manual installation (all platforms)
+
+All release packages can be downloaded from:  
+ - https://download.eclipse.org/zenoh/zenoh-backend-s3/latest/   
+
+Each subdirectory has the name of the Rust target. See the platforms each target corresponds to on https://doc.rust-lang.org/stable/rustc/platform-support.html
+
+Choose your platform and download the `.zip` file.  
+Unzip it in the same directory than `zenohd` or to any directory where it can find the backend library (e.g. /usr/lib or ~/.zenoh/lib)
+
+### Linux Debian
+
+Add Eclipse Zenoh private repository to the sources list, and install the `zenoh-backend-s3` package:
+
+```bash
+echo "deb [trusted=yes] https://download.eclipse.org/zenoh/debian-repo/ /" | sudo tee -a /etc/apt/sources.list > /dev/null
+sudo apt update
+sudo apt install zenoh-backend-s3
+```
 
 
 -------------------------------
 ## How to build it
 
+> :warning: **WARNING** :warning: : Zenoh and its ecosystem are under active development. When you build from git, make sure you also build from git any other Zenoh repository you plan to use (e.g. binding, plugin, backend, etc.). It may happen that some changes in git are not compatible with the most recent packaged Zenoh release (e.g. deb, docker, pip). We put particular effort in mantaining compatibility between the various git repositories in the Zenoh project.
+
 At first, install [Cargo and Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html). 
 
-:warning: **WARNING** :warning: : As Rust doesn't have a stable ABI, the backend library should be
+> :warning: **WARNING** :warning: : As Rust doesn't have a stable ABI, the backend library should be
 built with the exact same Rust version than `zenohd`. Otherwise, incompatibilities in memory mapping
 of shared types between `zenohd` and the library can lead to a `"SIGSEV"` crash.
 
@@ -228,4 +302,3 @@ And then build the backend with:
 ```bash
 $ cargo build --release --all-targets
 ```
-
