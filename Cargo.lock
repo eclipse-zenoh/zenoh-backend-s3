@@ -1626,9 +1626,9 @@ checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 
 [[package]]
 name = "pest"
-version = "2.5.2"
+version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f6e86fb9e7026527a0d46bc308b841d73170ef8f443e1807f6ef88526a816d4"
+checksum = "4257b4a04d91f7e9e6290be5d3da4804dd5784fafde3a497d73eb2b4a158c30a"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -1636,9 +1636,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.5.2"
+version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96504449aa860c8dcde14f9fba5c58dc6658688ca1fe363589d6327b8662c603"
+checksum = "241cda393b0cdd65e62e07e12454f1f25d57017dcc514b1514cd3c4645e3a0a6"
 dependencies = [
  "pest",
  "pest_generator",
@@ -1646,9 +1646,9 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.5.2"
+version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "798e0220d1111ae63d66cb66a5dcb3fc2d986d520b98e49e1852bfdb11d7c5e7"
+checksum = "46b53634d8c8196302953c74d5352f33d0c512a9499bd2ce468fc9f4128fa27c"
 dependencies = [
  "pest",
  "pest_meta",
@@ -1659,13 +1659,13 @@ dependencies = [
 
 [[package]]
 name = "pest_meta"
-version = "2.5.2"
+version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "984298b75898e30a843e278a9f2452c31e349a073a0ce6fd950a12a74464e065"
+checksum = "0ef4f1332a8d4678b41966bb4cc1d0676880e84183a1ecc3f4b69f03e99c7a51"
 dependencies = [
  "once_cell",
  "pest",
- "sha1",
+ "sha2",
 ]
 
 [[package]]
@@ -3032,7 +3032,7 @@ checksum = "4d25c75bf9ea12c4040a97f829154768bbbce366287e2dc044af160cd79a13fd"
 [[package]]
 name = "zenoh"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-global-executor",
  "async-std",
@@ -3112,7 +3112,7 @@ dependencies = [
 [[package]]
 name = "zenoh-buffers"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "zenoh-collections",
 ]
@@ -3120,7 +3120,7 @@ dependencies = [
 [[package]]
 name = "zenoh-cfg-properties"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "zenoh-core",
  "zenoh-macros",
@@ -3129,7 +3129,7 @@ dependencies = [
 [[package]]
 name = "zenoh-codec"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "uhlc",
  "zenoh-buffers",
@@ -3140,7 +3140,7 @@ dependencies = [
 [[package]]
 name = "zenoh-collections"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "zenoh-core",
 ]
@@ -3148,7 +3148,7 @@ dependencies = [
 [[package]]
 name = "zenoh-config"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "flume",
  "json5",
@@ -3166,7 +3166,7 @@ dependencies = [
 [[package]]
 name = "zenoh-core"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "anyhow",
  "async-std",
@@ -3177,7 +3177,7 @@ dependencies = [
 [[package]]
 name = "zenoh-crypto"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "aes",
  "hmac",
@@ -3190,7 +3190,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3210,7 +3210,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-commons"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3227,7 +3227,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-quic"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3250,7 +3250,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-tcp"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3265,7 +3265,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-tls"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-rustls",
  "async-std",
@@ -3287,7 +3287,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-udp"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3305,7 +3305,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-unixsock_stream"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3322,7 +3322,7 @@ dependencies = [
 [[package]]
 name = "zenoh-link-ws"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3341,7 +3341,7 @@ dependencies = [
 [[package]]
 name = "zenoh-macros"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3353,7 +3353,7 @@ dependencies = [
 [[package]]
 name = "zenoh-plugin-trait"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "libloading",
  "log",
@@ -3366,7 +3366,7 @@ dependencies = [
 [[package]]
 name = "zenoh-protocol"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "hex",
  "rand",
@@ -3380,7 +3380,7 @@ dependencies = [
 [[package]]
 name = "zenoh-shm"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "bincode",
  "log",
@@ -3393,7 +3393,7 @@ dependencies = [
 [[package]]
 name = "zenoh-sync"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "event-listener",
@@ -3408,7 +3408,7 @@ dependencies = [
 [[package]]
 name = "zenoh-transport"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-executor",
  "async-global-executor",
@@ -3438,7 +3438,7 @@ dependencies = [
 [[package]]
 name = "zenoh-util"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
@@ -3466,7 +3466,7 @@ dependencies = [
 [[package]]
 name = "zenoh_backend_traits"
 version = "0.7.0-rc"
-source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#a2120eacafba46104a962fa32495250310578d55"
+source = "git+https://github.com/eclipse-zenoh/zenoh?branch=master#d173f1e9580cdae6d3aa9b864e97b41463094f67"
 dependencies = [
  "async-std",
  "async-trait",
