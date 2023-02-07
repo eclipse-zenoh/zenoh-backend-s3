@@ -16,7 +16,7 @@ Check the website [zenoh.io](http://zenoh.io) and the [roadmap](https://github.c
 
 In zenoh a backend is a storage technology (such as DBMS, time-series database, file system...) alowing to store the
 keys/values publications made via zenoh and return them on queries.
-See the [zenoh documentation](http://zenoh.io/docs/manual/backends/) for more details.
+See the [zenoh documentation](https://zenoh.io/docs/manual/plugin-storage-manager/#backends-and-volumes) for more details.
 
 This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to implement the storages. It is also compatible to work with [MinIO](https://min.io/) object storage.
 
