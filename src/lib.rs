@@ -172,7 +172,11 @@ impl Volume for S3Backend {
 
     /// Returns the capability of this backend
     fn get_capability(&self) -> Capability {
-        todo!()
+        Capability {
+            persistence: Persistence::Durable,
+            history: History::Latest,
+            read_cost: 1,
+        }
     }
 }
 
