@@ -21,13 +21,15 @@ use async_trait::async_trait;
 
 use client::S3Client;
 use config::{S3Config, TlsClientConfig};
-use utils::{S3Key, S3Value};
-
 use futures::future::join_all;
-use std::convert::TryFrom;
-
 use futures::stream::FuturesUnordered;
-use zenoh::prelude::r#async::AsyncResolve;
+use uhlc::ID;
+use utils::S3Key;
+
+use std::convert::TryFrom;
+use std::str::FromStr;
+use std::vec;
+
 use zenoh::prelude::*;
 use zenoh::properties::Properties;
 use zenoh::time::Timestamp;
@@ -40,6 +42,9 @@ use zenoh_core::zerror;
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 pub const PROP_S3_REGION: &str = "region";
+
+// Special key for None (when the prefix being stripped exactly matches the key)
+pub const NONE_KEY: &str = "@@none_key@@";
 
 // TLS properties
 const PROP_TLS: &str = "tls";
@@ -164,6 +169,11 @@ impl Volume for S3Backend {
     fn outgoing_data_interceptor(&self) -> Option<Arc<dyn Fn(Sample) -> Sample + Send + Sync>> {
         None
     }
+
+    /// Returns the capability of this backend
+    fn get_capability(&self) -> Capability {
+        todo!()
+    }
 }
 
 struct S3Storage {
@@ -178,124 +188,127 @@ impl Storage for S3Storage {
         self.config.admin_status.to_owned()
     }
 
-    // When receiving a Sample (i.e. on PUT or DELETE operations)
-    async fn on_sample(&mut self, sample: Sample) -> ZResult<StorageInsertionResult> {
-        log::debug!(
-            "'{}' called on client {}. Key: '{}'",
-            sample.kind,
-            self.client,
-            sample.key_expr
-        );
+    /// Function called for each incoming data ([`Sample`]) to be stored in this storage.
+    async fn put(
+        &mut self,
+        key: Option<OwnedKeyExpr>,
+        value: Value,
+        timestamp: Timestamp,
+    ) -> ZResult<StorageInsertionResult> {
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
+        log::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(
-            self.config.path_prefix.to_owned(),
-            sample.key_expr.to_owned(),
-        )?;
-
-        match sample.kind {
-            SampleKind::Put => {
-                if !self.config.is_read_only {
-                    let client2 = self.client.clone();
-                    let sample2 = sample.to_owned();
-                    let key2 = s3_key.into();
-                    self.runtime
-                        .spawn(async move { client2.put_object(key2, sample2).await })
-                        .await
-                        .map_err(|e| zerror!("Put operation failed: {e}"))?
-                        .map_err(|e| zerror!("Put operation failed: {e}"))?;
-                    Ok(StorageInsertionResult::Inserted)
-                } else {
-                    log::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
-                    Err("Received update for read-only DB".into())
-                }
-            }
-            SampleKind::Delete => {
-                if !self.config.is_read_only {
-                    let client2 = self.client.clone();
-                    let key2 = s3_key.into();
-
-                    self.runtime
-                        .spawn(async move { client2.delete_object(key2).await })
-                        .await
-                        .map_err(|e| zerror!("Delete operation failed: {e}"))?
-                        .map_err(|e| zerror!("Delete operation failed: {e}"))?;
-                    Ok(StorageInsertionResult::Deleted)
-                } else {
-                    log::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
-                    Err("Received update for read-only DB".into())
-                }
-            }
-        }
-    }
-
-    async fn on_query(&mut self, query: Query) -> ZResult<()> {
-        log::debug!(
-            "Query operation received for '{}' on bucket '{}'.",
-            query.key_expr().as_str(),
-            self.client
-        );
-
-        let key_expr = query.key_expr();
-        let prefix = self.config.path_prefix.to_owned();
-        if key_expr.is_wild() {
-            let client = self.client.clone();
-            let key_expr = key_expr.to_owned();
-
-            let arc_query = Arc::new(query);
-            let intersecting_objects = self
-                .runtime
-                .spawn(async move { client.get_intersecting_objects(&key_expr, prefix).await })
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key.into())?;
+        if !self.config.is_read_only {
+            let client2 = self.client.clone();
+            let key2 = s3_key.into();
+            self.runtime
+                .spawn(async move { client2.put_object(key2, value, timestamp).await })
                 .await
-                .map_err(|e| zerror!("Get operation failed: {e}"))?
-                .map_err(|e| zerror!("Get operation failed: {e}"))?;
-
-            join_all(
-                intersecting_objects
-                    .into_iter()
-                    .map(|object| {
-                        let client = self.client.clone();
-                        let query = arc_query.clone();
-                        let prefix = self.config.path_prefix.to_owned();
-                        self.runtime.spawn(async move {
-                            let key = object.key().ok_or_else(|| {
-                                zerror!("Could not get key for object {:?}", object)
-                            })?;
-                            let s3_key = S3Key::from_key(prefix, key.to_string());
-                            let result = client.get_value_from_storage(s3_key).await;
-                            match result {
-                                Ok(s3_value) => S3Storage::reply_query(query, s3_value).await,
-                                Err(err) => {
-                                    log::debug!("Unable to retrieve object from storage: {err:?}");
-                                    Ok(())
-                                }
-                            }
-                        })
-                    })
-                    .collect::<FuturesUnordered<_>>(),
-            )
-            .await;
+                .map_err(|e| zerror!("Put operation failed: {e}"))?
+                .map_err(|e| zerror!("Put operation failed: {e}"))?;
+            Ok(StorageInsertionResult::Inserted)
         } else {
-            let s3_key = S3Key::from_key_expr(prefix, query.key_expr().to_owned())?;
-
-            let value = self.get_stored_value(&s3_key.into()).await?;
-            query
-                .reply(Sample::new(query.key_expr().clone(), value))
-                .res()
-                .await
-                .map_err(|e| zerror!("{e}"))?
+            log::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
+            Err("Received update for read-only DB".into())
         }
-        Ok(())
     }
 
-    // TODO(https://github.com/DariusIMP/zenoh-backend-s3/issues/1): create
-    // mechanism to store the Timestamp id and time on the bucket files in
-    // order to retrieve them here below.
-    async fn get_all_entries(&self) -> ZResult<Vec<(OwnedKeyExpr, Timestamp)>> {
-        log::debug!(
-            "Issue 'https://github.com/DariusIMP/zenoh-backend-s3/issues/1' 
-        needs to be solved first before being able to retrieve all the entries."
-        );
-        Err("Could not retrieve all entries from storage.".into())
+    /// Function called for each incoming delete request to this storage.
+    async fn delete(
+        &mut self,
+        key: Option<OwnedKeyExpr>,
+        _timestamp: Timestamp,
+    ) -> ZResult<StorageInsertionResult> {
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
+        log::debug!("Delete called on client {}. Key: '{}'", self.client, key);
+
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key.into())?;
+        if !self.config.is_read_only {
+            let client2 = self.client.clone();
+            let key2 = s3_key.into();
+
+            self.runtime
+                .spawn(async move { client2.delete_object(key2).await })
+                .await
+                .map_err(|e| zerror!("Delete operation failed: {e}"))?
+                .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+            Ok(StorageInsertionResult::Deleted)
+        } else {
+            log::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
+            Err("Received update for read-only DB".into())
+        }
+    }
+
+    /// Function to retrieve the sample associated with a single key.
+    async fn get(
+        &mut self,
+        key: Option<OwnedKeyExpr>,
+        _parameters: &str,
+    ) -> ZResult<Vec<StoredData>> {
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
+        log::debug!("Get called on client {}. Key: '{}'", self.client, key);
+
+        let prefix = self.config.path_prefix.to_owned();
+        let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
+        let value = self.get_stored_value(&s3_key.into()).await?;
+
+        //TODO: handle timestamps properly
+        let id1: ID = ID::try_from([0x01]).unwrap();
+        let ts1_epoch = Timestamp::new(Default::default(), id1);
+        let stored_data = StoredData {
+            value,
+            timestamp: ts1_epoch,
+        };
+        Ok(vec![stored_data])
+    }
+
+    async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
+        let root_ke = OwnedKeyExpr::from_str("**")?;
+        let client = self.client.clone();
+        let intersecting_objects = self
+            .runtime
+            .spawn(async move { client.get_intersecting_objects(&root_ke, None).await })
+            .await
+            .map_err(|e| zerror!("Get operation failed: {e}"))?
+            .map_err(|e| zerror!("Get operation failed: {e}"))?;
+
+        let futures = intersecting_objects.into_iter().map(|object| {
+            let client = self.client.clone();
+            let prefix = self.config.path_prefix.to_owned();
+            self.runtime.spawn(async move {
+                let key = object
+                    .key()
+                    .ok_or_else(|| zerror!("Could not get key for object {:?}", object))?;
+                let s3_key = S3Key::from_key(prefix, key.to_string());
+                let result = client.get_value_from_storage(s3_key).await;
+                match result {
+                    Ok(value) => {
+                        let key_expr = OwnedKeyExpr::try_from(value.key)
+                            .map_err(|err| zerror!("Unable to recreate key expression: {}", err))?;
+                        let metadata = value
+                            .metadata
+                            .ok_or_else(|| zerror!("Unable to retrieve metadata."))?;
+                        let timestamp = metadata
+                            .get("timestamp_uhlc")
+                            .ok_or_else(|| zerror!("Unable to retrieve timestamp."))?;
+                        Ok((
+                            Some(key_expr),
+                            Timestamp::from_str(timestamp.as_str()).unwrap(),
+                        ))
+                    }
+                    Err(err) => Err(zerror!(
+                        "Unable to get '{}' object from storage: {}",
+                        key.to_owned(),
+                        err
+                    )),
+                }
+            })
+        });
+        let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
+        let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> =
+            futures_results.into_iter().flatten().flatten().collect();
+        Ok(entries)
     }
 }
 
@@ -328,19 +341,6 @@ impl S3Storage {
             None => Value::from(Vec::from(bytes)),
         };
         Ok(value)
-    }
-
-    /// Utility function to reply to a query having a wild key. It is intended to be used by multiple
-    /// tasks running in parallel.
-    async fn reply_query(query: Arc<Query>, s3_value: S3Value) -> ZResult<()> {
-        Ok(query
-            .reply(Sample::new(
-                KeyExpr::try_from(s3_value.key)?,
-                s3_value.value,
-            ))
-            .res()
-            .await
-            .map_err(|e| zerror!("{e}"))?)
     }
 }
 

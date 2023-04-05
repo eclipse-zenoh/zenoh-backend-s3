@@ -12,6 +12,7 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
 
@@ -24,12 +25,13 @@ use aws_sdk_s3::output::{
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
 use aws_smithy_client::hyper_ext;
+use uhlc::Timestamp;
 use zenoh::prelude::{Encoding, KeyExpr};
-use zenoh::sample::Sample;
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 use zenoh_core::zerror;
+use zenoh_keyexpr::OwnedKeyExpr;
 
 use crate::config::TlsClientConfig;
 use crate::utils::{S3Key, S3Value};
@@ -117,15 +119,23 @@ impl S3Client {
 
     /// Performs a put operation on the storage on the key specified (which corresponds to the
     /// name of the file to be created) with the [Sample] provided.
-    pub async fn put_object(&self, key: String, sample: Sample) -> ZResult<PutObjectOutput> {
-        let body = ByteStream::from(sample.payload.contiguous().to_vec());
+    pub async fn put_object(
+        &self,
+        key: String,
+        value: Value,
+        timestamp: Timestamp,
+    ) -> ZResult<PutObjectOutput> {
+        let body = ByteStream::from(value.payload.contiguous().to_vec());
+        let mut metadata: HashMap<String, String> = HashMap::new();
+        metadata.insert("timestamp_uhlc".to_string(), timestamp.to_string());
         Ok(self
             .client
             .put_object()
             .bucket(self.bucket.to_owned())
             .key(key)
             .body(body)
-            .set_content_encoding(Some(sample.encoding.to_string()))
+            .set_content_encoding(Some(value.encoding.to_string()))
+            .set_metadata(Some(metadata))
             .send()
             .await?)
     }
@@ -236,27 +246,15 @@ impl S3Client {
         Ok(response.contents().unwrap_or_default().to_vec())
     }
 
-    /// Utility function to retrieve the value of an object to the S3 storage.
-    ///
-    /// This function obtains the key from the object metadata and realizes a request upon the S3
-    /// server to obtain the actual payload and thus its value. It is intended to be used by multiple
-    /// tasks running in parallel.
-    ///
-    /// # Arguments
-    ///
-    /// * `client` - atomically reference counted of the [S3Client] with which we communicate with the
-    ///             s3 server
-    /// * `object_metadata` - metadata of the object from which the value is to be retrieved
-    ///
-    /// # Returns
-    ///
-    /// *
+    /// Utility function to retrieve the S3Value of an object from the S3 storage.
     pub async fn get_value_from_storage(&self, s3_key: S3Key) -> ZResult<S3Value> {
         let result = self.get_object(&s3_key.key).await;
         let output = result.map_err(|e| zerror!("Get operation failed: {e}"))?;
+        let metadata = output.metadata().cloned();
         Ok(S3Value {
             key: s3_key,
             value: S3Client::extract_value_from_response(output).await?,
+            metadata,
         })
     }
 
@@ -276,7 +274,7 @@ impl S3Client {
     /// request.
     pub async fn get_intersecting_objects(
         &self,
-        key_expr: &KeyExpr<'_>,
+        key_expr: &OwnedKeyExpr,
         prefix: Option<String>,
     ) -> ZResult<Vec<Object>> {
         let mut intersecting_objects_metadata = Vec::new();

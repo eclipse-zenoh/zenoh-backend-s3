@@ -12,15 +12,18 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use core::fmt;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use zenoh::prelude::KeyExpr;
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_core::zerror;
+use zenoh_keyexpr::OwnedKeyExpr;
 
 pub struct S3Value {
     pub key: S3Key,
     pub value: Value,
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 pub struct S3Key {
@@ -33,10 +36,7 @@ impl S3Key {
         Self { prefix, key }
     }
 
-    pub fn from_key_expr(
-        prefix: Option<String>,
-        key_expr: zenoh::key_expr::KeyExpr<'_>,
-    ) -> ZResult<Self> {
+    pub fn from_key_expr(prefix: Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
         let mut key = key_expr.as_str();
         if let Some(prefix) = prefix.to_owned() {
             key = key.strip_prefix(prefix.as_str()).ok_or_else(|| {
@@ -74,6 +74,21 @@ impl TryFrom<S3Key> for KeyExpr<'_> {
                 // For compatibility purposes between Amazon S3 and MinIO S3 implementations we
                 // trim the '/' character.
                 KeyExpr::try_from(format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')))
+            },
+        )
+    }
+}
+
+impl TryFrom<S3Key> for OwnedKeyExpr {
+    type Error = zenoh_core::Error;
+
+    fn try_from(s3_key: S3Key) -> ZResult<Self> {
+        s3_key.prefix.as_ref().map_or_else(
+            || OwnedKeyExpr::try_from(s3_key.key.to_owned()),
+            |prefix| {
+                // For compatibility purposes between Amazon S3 and MinIO S3 implementations we
+                // trim the '/' character.
+                OwnedKeyExpr::try_from(format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')))
             },
         )
     }
