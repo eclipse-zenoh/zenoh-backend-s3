@@ -13,28 +13,23 @@
 //
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt;
 
 use aws_sdk_s3::model::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
 use aws_sdk_s3::output::{
-    CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput,
+    CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput,
 };
 use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
 use aws_sdk_s3::{Credentials, Endpoint, Region};
 use aws_smithy_client::hyper_ext;
-use uhlc::Timestamp;
-use zenoh::prelude::{Encoding, KeyExpr};
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
 use zenoh_core::zerror;
-use zenoh_keyexpr::OwnedKeyExpr;
 
 use crate::config::TlsClientConfig;
-use crate::utils::{S3Key, S3Value};
 
 /// Client to communicate with the S3 storage.
 pub(crate) struct S3Client {
@@ -117,17 +112,26 @@ impl S3Client {
             .await?)
     }
 
+    /// Retrieves the object associated to the [key] specified.
+    pub async fn get_head_object(&self, key: &str) -> ZResult<HeadObjectOutput> {
+        Ok(self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key.to_string())
+            .send()
+            .await?)
+    }
+
     /// Performs a put operation on the storage on the key specified (which corresponds to the
     /// name of the file to be created) with the [Sample] provided.
     pub async fn put_object(
         &self,
         key: String,
         value: Value,
-        timestamp: Timestamp,
+        metadata: Option<HashMap<String, String>>
     ) -> ZResult<PutObjectOutput> {
         let body = ByteStream::from(value.payload.contiguous().to_vec());
-        let mut metadata: HashMap<String, String> = HashMap::new();
-        metadata.insert("timestamp_uhlc".to_string(), timestamp.to_string());
         Ok(self
             .client
             .put_object()
@@ -135,7 +139,7 @@ impl S3Client {
             .key(key)
             .body(body)
             .set_content_encoding(Some(value.encoding.to_string()))
-            .set_metadata(Some(metadata))
+            .set_metadata(metadata)
             .send()
             .await?)
     }
@@ -244,77 +248,6 @@ impl S3Client {
             .send()
             .await?;
         Ok(response.contents().unwrap_or_default().to_vec())
-    }
-
-    /// Utility function to retrieve the S3Value of an object from the S3 storage.
-    pub async fn get_value_from_storage(&self, s3_key: S3Key) -> ZResult<S3Value> {
-        let result = self.get_object(&s3_key.key).await;
-        let output = result.map_err(|e| zerror!("Get operation failed: {e}"))?;
-        let metadata = output.metadata().cloned();
-        Ok(S3Value {
-            key: s3_key,
-            value: S3Client::extract_value_from_response(output).await?,
-            metadata,
-        })
-    }
-
-    /// Utility function to retrieve the intersecting objects on the S3 storage with a wild key
-    /// expression.
-    ///
-    /// # Arguments
-    ///
-    /// * `client` - the [S3Client] allowing us to communicate with the S3 server
-    /// * `key_expr` - the wild key expression we want to intersect against the stored keys
-    /// * `prefix` - prefix from the configuration
-    ///
-    /// # Returns
-    ///
-    /// A vector of the intersecting objects contained in the storage or an error result. Note that the
-    /// objects do not contain their actual paylod, this must be retrieved afterwards doing a proper
-    /// request.
-    pub async fn get_intersecting_objects(
-        &self,
-        key_expr: &OwnedKeyExpr,
-        prefix: Option<String>,
-    ) -> ZResult<Vec<Object>> {
-        let mut intersecting_objects_metadata = Vec::new();
-        let objects_metadata = self.list_objects_in_bucket().await?;
-        for metadata in objects_metadata {
-            let s3_key = S3Key::from_key(
-                prefix.to_owned(),
-                metadata
-                    .key()
-                    .ok_or_else(|| zerror!("Unable to retrieve key from object {:?}", metadata))?
-                    .to_owned(),
-            );
-            if key_expr.intersects(KeyExpr::try_from(s3_key)?.as_ref()) {
-                intersecting_objects_metadata.push(metadata);
-            }
-        }
-        Ok(intersecting_objects_metadata)
-    }
-
-    /// Utility function to extract the [Value] from a result.
-    ///
-    /// # Arguments
-    ///
-    /// * `response`: response from the S3 server to a get object request.
-    async fn extract_value_from_response(response: GetObjectOutput) -> ZResult<Value> {
-        let encoding = response.content_encoding().map(|x| x.to_string());
-        let bytes = response
-            .body
-            .collect()
-            .await
-            .map(|data| data.into_bytes())?;
-
-        let value = match encoding {
-            Some(encoding) => Encoding::try_from(encoding).map_or_else(
-                |_| Value::from(Vec::from(bytes.to_owned())),
-                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
-            ),
-            None => Value::from(Vec::from(bytes)),
-        };
-        Ok(value)
     }
 }
 

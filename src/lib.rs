@@ -23,9 +23,9 @@ use client::S3Client;
 use config::{S3Config, TlsClientConfig};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
-use uhlc::ID;
 use utils::S3Key;
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::vec;
@@ -45,6 +45,9 @@ pub const PROP_S3_REGION: &str = "region";
 
 // Special key for None (when the prefix being stripped exactly matches the key)
 pub const NONE_KEY: &str = "@@none_key@@";
+
+// Metadata keys
+pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 
 // TLS properties
 const PROP_TLS: &str = "tls";
@@ -192,6 +195,23 @@ impl Storage for S3Storage {
         self.config.admin_status.to_owned()
     }
 
+    /// Function to retrieve the sample associated with a single key.
+    async fn get(
+        &mut self,
+        key: Option<OwnedKeyExpr>,
+        _parameters: &str,
+    ) -> ZResult<Vec<StoredData>> {
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
+        log::debug!("GET called on client {}. Key: '{}'", self.client, key);
+
+        let prefix = self.config.path_prefix.to_owned();
+        let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
+        let (timestamp, value) = self.get_stored_value(&s3_key.into()).await?;
+
+        let stored_data = StoredData { value, timestamp };
+        Ok(vec![stored_data])
+    }
+
     /// Function called for each incoming data ([`Sample`]) to be stored in this storage.
     async fn put(
         &mut self,
@@ -199,15 +219,18 @@ impl Storage for S3Storage {
         value: Value,
         timestamp: Timestamp,
     ) -> ZResult<StorageInsertionResult> {
-        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key.into())?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)
+            .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
             let key2 = s3_key.into();
+            let mut metadata: HashMap<String, String> = HashMap::new();
+            metadata.insert(TIMESTAMP_METADATA_KEY.to_string(), timestamp.to_string());
             self.runtime
-                .spawn(async move { client2.put_object(key2, value, timestamp).await })
+                .spawn(async move { client2.put_object(key2, value, Some(metadata)).await })
                 .await
                 .map_err(|e| zerror!("Put operation failed: {e}"))?
                 .map_err(|e| zerror!("Put operation failed: {e}"))?;
@@ -224,10 +247,10 @@ impl Storage for S3Storage {
         key: Option<OwnedKeyExpr>,
         _timestamp: Timestamp,
     ) -> ZResult<StorageInsertionResult> {
-        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
+        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Delete called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key.into())?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
             let key2 = s3_key.into();
@@ -244,61 +267,42 @@ impl Storage for S3Storage {
         }
     }
 
-    /// Function to retrieve the sample associated with a single key.
-    async fn get(
-        &mut self,
-        key: Option<OwnedKeyExpr>,
-        _parameters: &str,
-    ) -> ZResult<Vec<StoredData>> {
-        let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), |key| Ok(key))?;
-        log::debug!("Get called on client {}. Key: '{}'", self.client, key);
-
-        let prefix = self.config.path_prefix.to_owned();
-        let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
-        let value = self.get_stored_value(&s3_key.into()).await?;
-
-        //TODO: handle timestamps properly
-        let id1: ID = ID::try_from([0x01]).unwrap();
-        let ts1_epoch = Timestamp::new(Default::default(), id1);
-        let stored_data = StoredData {
-            value,
-            timestamp: ts1_epoch,
-        };
-        Ok(vec![stored_data])
-    }
-
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
-        let root_ke = OwnedKeyExpr::from_str("**")?;
         let client = self.client.clone();
-        let intersecting_objects = self
+        let objects = self
             .runtime
-            .spawn(async move { client.get_intersecting_objects(&root_ke, None).await })
+            .spawn(async move { client.list_objects_in_bucket().await })
             .await
             .map_err(|e| zerror!("Get operation failed: {e}"))?
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
-        let futures = intersecting_objects.into_iter().map(|object| {
+        let futures = objects.into_iter().map(|object| {
             let client = self.client.clone();
-            let prefix = self.config.path_prefix.to_owned();
             self.runtime.spawn(async move {
                 let key = object
                     .key()
                     .ok_or_else(|| zerror!("Could not get key for object {:?}", object))?;
-                let s3_key = S3Key::from_key(prefix, key.to_string());
-                let result = client.get_value_from_storage(s3_key).await;
+                let result = client.get_head_object(key).await;
                 match result {
                     Ok(value) => {
-                        let key_expr = OwnedKeyExpr::try_from(value.key)
-                            .map_err(|err| zerror!("Unable to recreate key expression: {}", err))?;
-                        let metadata = value
-                            .metadata
-                            .ok_or_else(|| zerror!("Unable to retrieve metadata."))?;
-                        let timestamp = metadata
-                            .get("timestamp_uhlc")
-                            .ok_or_else(|| zerror!("Unable to retrieve timestamp."))?;
+                        let key_expr = if key == NONE_KEY {
+                            None
+                        } else {
+                            Some(OwnedKeyExpr::try_from(key).map_err(|err| {
+                                zerror!("Unable to recreate key expression for '{}': {}.", key, err)
+                            })?)
+                        };
+                        let metadata = value.metadata.ok_or_else(|| {
+                            zerror!("Unable to retrieve metadata for key '{}'.", key)
+                        })?;
+                        let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
+                            zerror!("Unable to retrieve timestamp for key '{}'.", key)
+                        })?;
                         Ok((
-                            Some(key_expr),
-                            Timestamp::from_str(timestamp.as_str()).unwrap(),
+                            key_expr,
+                            Timestamp::from_str(timestamp.as_str()).map_err(|e| {
+                                zerror!("Unable to obtain timestamp for key: {}. {:?}", key, e)
+                            })?,
                         ))
                     }
                     Err(err) => Err(zerror!(
@@ -317,7 +321,7 @@ impl Storage for S3Storage {
 }
 
 impl S3Storage {
-    async fn get_stored_value(&self, key: &String) -> ZResult<Value> {
+    async fn get_stored_value(&self, key: &String) -> ZResult<(Timestamp, Value)> {
         let client2 = self.client.clone();
         let key2 = key.to_owned();
         let output_result = self
@@ -326,6 +330,16 @@ impl S3Storage {
             .await
             .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
             .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
+
+        let metadata = output_result
+            .metadata
+            .as_ref()
+            .ok_or_else(|| zerror!("Unable to retrieve metadata."))?;
+        let timestamp = metadata
+            .get(TIMESTAMP_METADATA_KEY)
+            .ok_or_else(|| zerror!("Unable to retrieve timestamp."))?;
+        let timestamp = Timestamp::from_str(timestamp.as_str())
+            .map_err(|e| zerror!("Unable to obtain timestamp for key: {}. {:?}", key, e))?;
 
         let encoding = output_result.content_encoding().map(|x| x.to_string());
         let bytes = output_result
@@ -344,7 +358,7 @@ impl S3Storage {
             ),
             None => Value::from(Vec::from(bytes)),
         };
-        Ok(value)
+        Ok((timestamp, value))
     }
 }
 

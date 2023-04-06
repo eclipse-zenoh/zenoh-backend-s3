@@ -17,7 +17,6 @@ use std::convert::TryFrom;
 use zenoh::prelude::KeyExpr;
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
-use zenoh_core::zerror;
 use zenoh_keyexpr::OwnedKeyExpr;
 
 pub struct S3Value {
@@ -38,14 +37,6 @@ impl S3Key {
 
     pub fn from_key_expr(prefix: Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
         let mut key = key_expr.as_str();
-        if let Some(prefix) = prefix.to_owned() {
-            key = key.strip_prefix(prefix.as_str()).ok_or_else(|| {
-                zerror!(
-                    "Received a Sample not starting with path_prefix '{}'",
-                    prefix
-                )
-            })?;
-        }
         key = key.trim_start_matches('/');
         Ok(Self {
             prefix,
