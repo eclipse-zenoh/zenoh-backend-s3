@@ -129,7 +129,7 @@ impl S3Client {
         &self,
         key: String,
         value: Value,
-        metadata: Option<HashMap<String, String>>
+        metadata: Option<HashMap<String, String>>,
     ) -> ZResult<PutObjectOutput> {
         let body = ByteStream::from(value.payload.contiguous().to_vec());
         Ok(self
