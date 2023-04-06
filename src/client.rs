@@ -112,7 +112,8 @@ impl S3Client {
             .await?)
     }
 
-    /// Retrieves the object associated to the [key] specified.
+    /// Retrieves the head object (the header of the object without its actual payload) associated
+    /// to the [key] specified.
     pub async fn get_head_object(&self, key: &str) -> ZResult<HeadObjectOutput> {
         Ok(self
             .client
