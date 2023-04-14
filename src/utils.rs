@@ -12,15 +12,17 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use core::fmt;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use zenoh::prelude::KeyExpr;
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
-use zenoh_core::zerror;
+use zenoh_keyexpr::OwnedKeyExpr;
 
 pub struct S3Value {
     pub key: S3Key,
     pub value: Value,
+    pub metadata: Option<HashMap<String, String>>,
 }
 
 pub struct S3Key {
@@ -33,19 +35,8 @@ impl S3Key {
         Self { prefix, key }
     }
 
-    pub fn from_key_expr(
-        prefix: Option<String>,
-        key_expr: zenoh::key_expr::KeyExpr<'_>,
-    ) -> ZResult<Self> {
+    pub fn from_key_expr(prefix: Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
         let mut key = key_expr.as_str();
-        if let Some(prefix) = prefix.to_owned() {
-            key = key.strip_prefix(prefix.as_str()).ok_or_else(|| {
-                zerror!(
-                    "Received a Sample not starting with path_prefix '{}'",
-                    prefix
-                )
-            })?;
-        }
         key = key.trim_start_matches('/');
         Ok(Self {
             prefix,
