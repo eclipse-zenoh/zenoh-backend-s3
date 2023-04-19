@@ -14,16 +14,22 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Duration;
 
-use aws_sdk_s3::model::{
+use aws_sdk_s3::config::{Credentials, Region};
+use aws_sdk_s3::operation::create_bucket::CreateBucketOutput;
+use aws_sdk_s3::operation::delete_object::DeleteObjectOutput;
+use aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput;
+use aws_sdk_s3::operation::get_object::GetObjectOutput;
+use aws_sdk_s3::operation::head_object::HeadObjectOutput;
+use aws_sdk_s3::operation::put_object::PutObjectOutput;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{
     BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
 };
-use aws_sdk_s3::output::{
-    CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput,
-};
-use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
-use aws_sdk_s3::{Credentials, Endpoint, Region};
-use aws_smithy_client::hyper_ext;
+use aws_sdk_s3::Client;
+use aws_smithy_client::http_connector::ConnectorSettings;
+use aws_smithy_client::{hyper_ext, SdkError};
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_buffers::SplitBuffer;
@@ -74,22 +80,29 @@ impl S3Client {
         };
 
         config_loader = match endpoint {
-            Some(endpoint) => config_loader.endpoint_resolver(Endpoint::immutable(
-                endpoint.parse().expect("Invalid endpoint: "),
-            )),
+            Some(endpoint) => config_loader.endpoint_url(endpoint),
             None => {
                 log::debug!("Endpoint not specified.");
                 config_loader
             }
         };
 
-        let config = &config_loader.load().await;
+        let config_loader = if let Some(ref tls_config) = tls_config {
+            let smithy_connector = hyper_ext::Adapter::builder()
+                .connector_settings(
+                    ConnectorSettings::builder()
+                        .connect_timeout(Duration::from_secs(5))
+                        .build(),
+                )
+                .build(tls_config.https_connector.to_owned());
+            config_loader.http_connector(smithy_connector)
+        } else {
+            config_loader
+        };
 
-        let client = if let Some(tls_config) = tls_config {
-            Client::from_conf_conn(
-                config.into(),
-                hyper_ext::Adapter::builder().build(tls_config.https_connector),
-            )
+        let config = &config_loader.load().await;
+        let client = if let Some(_tls_config) = tls_config {
+            Client::from_conf(config.into())
         } else {
             Client::new(config)
         };
@@ -215,13 +228,15 @@ impl S3Client {
 
         match result {
             Ok(output) => Ok(Some(output)),
-            Err(aws_sdk_s3::types::SdkError::ServiceError { err, raw }) => {
-                if err.is_bucket_already_owned_by_you() && reuse_bucket {
+            Err(SdkError::ServiceError(service_error)) => {
+                if service_error.err().is_bucket_already_owned_by_you() && reuse_bucket {
                     return Ok(None);
                 };
-                Err(zerror!("Couldn't associate bucket '{self}': {raw:?}").into())
+                Err(zerror!("Couldn't associate bucket '{self}': {service_error:?}").into())
             }
-            Err(err) => Err(zerror!("Couldn't create or associate bucket '{self}': {err}.").into()),
+            Err(err) => {
+                Err(zerror!("Couldn't create or associate bucket '{self}': {err:?}.").into())
+            }
         }
     }
 

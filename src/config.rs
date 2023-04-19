@@ -13,10 +13,10 @@
 //
 
 use async_rustls::{
-    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
+    rustls::{OwnedTrustAnchor, RootCertStore, ClientConfig},
     webpki::TrustAnchor,
 };
-use aws_sdk_s3::Credentials;
+use aws_sdk_s3::config::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use serde_json::{Map, Value};
