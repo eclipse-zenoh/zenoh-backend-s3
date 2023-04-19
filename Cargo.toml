@@ -23,8 +23,8 @@ authors = [
     "Luca Cominardi <luca.cominardi@zettascale.tech>",
     "Darius Maitia <darius@zettascale.tech>",
 ]
-edition = "2018"
-license = " EPL-2.0 OR Apache-2.0"
+edition = "2021"
+license = "EPL-2.0 OR Apache-2.0"
 categories = ["network-programming", "database"]
 description = "Backend for Zenoh using AWS S3 API"
 
@@ -35,23 +35,23 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 async-rustls = "0.3.0"
 async-std = { version = "=1.12.0", default-features = false, features = ["unstable", "tokio1"] }
-async-trait = "0.1.60"
-aws-config = "0.51.0"
-aws-sdk-s3 = "0.21.0"
-aws-smithy-client = "0.51.0"
+async-trait = "0.1.66"
+aws-config = "0.54.1"
+aws-sdk-s3 = "0.24.0"
+aws-smithy-client = "0.54.4"
 base64 = "0.21.0"
 env_logger = "0.10.0"
-futures = "0.3.25"
+futures = "0.3.26"
 git-version = "0.3.5"
-http = "0.2.8"
-hyper = "0.14.23"
-hyper-rustls = "0.23.1"
+http = "0.2.9"
+hyper = "0.14.24"
+hyper-rustls = "0.23.2"
 lazy_static = "1.4.0"
 log = "0.4.17"
-rustls-pemfile = "1.0.1"
-serde = "1.0.152"
-serde_json = "1.0.89"
-tokio = { version = "1.23.1", features = ["full"] }
+rustls-pemfile = "1.0.2"
+serde = "1.0.154"
+serde_json = "1.0.94"
+tokio = { version = "1.26.0", features = ["full"] }
 uhlc = "0.5.2"
 zenoh = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master", features = ["unstable"] }
 zenoh_backend_traits = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
