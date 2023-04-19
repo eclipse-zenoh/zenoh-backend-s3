@@ -20,7 +20,7 @@ See the [zenoh documentation](https://zenoh.io/docs/manual/plugin-storage-manage
 
 This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to implement the storages. It is also compatible to work with [MinIO](https://min.io/) object storage.
 
-Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`zbackend_s3`**.
+Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`zenoh_backend_s3`**.
 
 :point_right: **Install latest release:** see [below](#How-to-install-it)
 
@@ -30,7 +30,7 @@ Its library name (without OS specific prefix and extension) that zenoh will rely
 ## **Examples of usage**
 
 Prerequisites:
- - You have a zenoh router (`zenohd`) installed, and the `zbackend_s3` library file is available in `~/.zenoh/lib`.
+ - You have a zenoh router (`zenohd`) installed, and the `zenoh_backend_s3` library file is available in `~/.zenoh/lib`.
  - You have an S3 instance running, this could be an AmazonS3 instance or a MinIO instance.
 
 You can setup storages either at zenoh router startup via a configuration file, either at runtime via the zenoh admin space, using for instance the REST API (see https://zenoh.io/docs/manual/plugin-storage-manager/).
@@ -169,7 +169,7 @@ storage_manager {
     ```
     cargo run --bin=zenohd
     ```
-  - Add the "s3" backend (the "zbackend_s3" library will be loaded):
+  - Add the "s3" backend (the "zenoh_backend_s3" library will be loaded):
     ```
     curl -X PUT -H 'content-type:application/json' -d '{url: "http://localhost:9000", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}' http://localhost:8000/@/router/local/config/plugins/storage_manager/volumes/s3
     ```
