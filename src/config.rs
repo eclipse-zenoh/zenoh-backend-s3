@@ -13,7 +13,7 @@
 //
 
 use async_rustls::{
-    rustls::{OwnedTrustAnchor, RootCertStore, ClientConfig},
+    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
     webpki::TrustAnchor,
 };
 use aws_sdk_s3::config::Credentials;
@@ -273,6 +273,7 @@ impl TlsClientConfig {
             .with_tls_config(client_config)
             .https_only()
             .enable_http1()
+            .enable_http2()
             .build();
         Ok(TlsClientConfig {
             https_connector: rustls_connector,

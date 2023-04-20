@@ -80,7 +80,10 @@ impl S3Client {
         };
 
         config_loader = match endpoint {
-            Some(endpoint) => config_loader.endpoint_url(endpoint),
+            Some(endpoint) => {
+                log::debug!("XXX {endpoint}");
+                config_loader.endpoint_url(endpoint)
+            }
             None => {
                 log::debug!("Endpoint not specified.");
                 config_loader
@@ -101,15 +104,11 @@ impl S3Client {
         };
 
         let config = &config_loader.load().await;
-        let client = if let Some(_tls_config) = tls_config {
-            Client::from_conf(config.into())
-        } else {
-            Client::new(config)
-        };
+        let client = Client::new(config);
 
         S3Client {
             client,
-            bucket: bucket.to_string(),
+            bucket,
             region,
         }
     }
