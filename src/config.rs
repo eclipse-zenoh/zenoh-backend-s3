@@ -12,15 +12,13 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use async_rustls::{
-    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore},
-    webpki::TrustAnchor,
-};
+use async_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use aws_sdk_s3::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use serde_json::{Map, Value};
 use std::{fs::File, io::BufReader};
+use webpki::TrustAnchor;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 use zenoh_core::zerror;
