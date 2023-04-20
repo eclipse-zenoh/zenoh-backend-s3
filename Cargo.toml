@@ -29,7 +29,7 @@ categories = ["network-programming", "database"]
 description = "Backend for Zenoh using AWS S3 API"
 
 [lib]
-name = "zbackend_s3"
+name = "zenoh_backend_s3"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
