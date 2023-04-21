@@ -96,7 +96,7 @@ impl S3Client {
 
         S3Client {
             client,
-            bucket: bucket.to_string(),
+            bucket,
             region,
         }
     }
@@ -221,7 +221,9 @@ impl S3Client {
                 };
                 Err(zerror!("Couldn't associate bucket '{self}': {raw:?}").into())
             }
-            Err(err) => Err(zerror!("Couldn't create or associate bucket '{self}': {err}.").into()),
+            Err(err) => {
+                Err(zerror!("Couldn't create or associate bucket '{self}': {err:?}.").into())
+            }
         }
     }
 
