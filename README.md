@@ -21,7 +21,7 @@ See the [zenoh documentation](https://zenoh.io/docs/manual/plugin-storage-manage
 
 This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to implement the storages. It is also compatible to work with [MinIO](https://min.io/) object storage.
 
-Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`zenoh_backend_s3`**.
+Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`libzenoh_backend_s3`**.
 
 :point_right: **Install latest release:** see [below](#How-to-install-it)
 
@@ -33,7 +33,12 @@ Its library name (without OS specific prefix and extension) that zenoh will rely
 
 Prerequisites:
 
-- You have a zenoh router (`zenohd`) installed, and the `zenoh_backend_s3` library file is available in `~/.zenoh/lib`.
+- You have a zenoh router (`zenohd`) installed, and the `libzenoh_backend_s3` library file is available in `~/.zenoh/lib`. Alternatively we can set a symlink to the library, for instance by running:
+
+  ```
+  ln -s ~/zenoh-backend-s3/target/release/libzenoh_backend_s3.dylib  ~/.zenoh/lib/libzenoh_backend_s3.dylib
+  ```
+
 - You have an S3 instance running, this could be an AmazonS3 instance or a MinIO instance.
 
 You can setup storages either at zenoh router startup via a configuration file, either at runtime via the zenoh admin space, using for instance the REST API (see https://zenoh.io/docs/manual/plugin-storage-manager/).
