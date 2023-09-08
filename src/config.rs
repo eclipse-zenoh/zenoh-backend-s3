@@ -291,7 +291,7 @@ impl TlsClientConfig {
                 ta.name_constraints,
             )
         });
-        root_cert_store.add_server_trust_anchors(trust_anchors.into_iter());
+        root_cert_store.add_trust_anchors(trust_anchors.into_iter());
         Ok(())
     }
 }
