@@ -81,8 +81,7 @@ pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
     let mut properties = Properties::default();
     properties.insert("version".into(), LONG_VERSION.clone());
 
-    let admin_status = properties
-        .0
+    let admin_status = HashMap::from(properties)
         .into_iter()
         .map(|(k, v)| (k, serde_json::Value::String(v)))
         .collect();
