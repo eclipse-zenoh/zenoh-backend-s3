@@ -13,7 +13,7 @@
 #
 [package]
 name = "zenoh-backend-s3"
-version = "0.10.0-dev"
+version = "0.10.0-rc"
 repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
 homepage = "http://zenoh.io"
 authors = [
@@ -57,15 +57,15 @@ serde_json = "1.0.94"
 tokio = { version = "1.26.0", features = ["full"] }
 uhlc = "0.5.2"
 webpki = "0.22.0"
-zenoh = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master", features = ["unstable"] }
-zenoh_backend_traits = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-buffers = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-codec = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-collections = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-core = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-protocol = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-util = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
-zenoh-keyexpr = { git = "https://github.com/eclipse-zenoh/zenoh", branch = "master" }
+zenoh = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc", features = ["unstable"] }
+zenoh_backend_traits = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-buffers = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-codec = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-collections = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-core = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-protocol = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-util = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
+zenoh-keyexpr = { version = "0.10.0-rc", git = "https://github.com/eclipse-zenoh/zenoh", branch = "release-0.10.0-rc" }
 
 [build-dependencies]
 rustc_version = "0.4.0"
@@ -76,4 +76,4 @@ maintainer = "zenoh-dev@eclipse.org"
 copyright = "2022 ZettaScale Technology"
 section = "net"
 license-file = ["LICENSE", "0"]
-depends = "zenoh-plugin-storage-manager (=0.10.0-dev)"
+depends = "zenoh-plugin-storage-manager (=0.10.0-rc)"
