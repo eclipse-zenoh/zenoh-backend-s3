@@ -32,6 +32,9 @@ description = "Backend for Zenoh using AWS S3 API"
 name = "zenoh_backend_s3"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+stats = ["zenoh/stats"]
+
 [dependencies]
 async-rustls = "0.4.0"
 async-std = { version = "=1.12.0", default-features = false, features = ["unstable", "tokio1"] }
