@@ -18,11 +18,19 @@
             // case the endpoint will be resolved automatically.
             url: "https://s3.eu-west-1.amazonaws.com",
 
-            // Optional TLS specific parameters to enable HTTPS with MinIO. Configuration shared by
-            // all the associated storages. 
+            // Optional TLS specific parameters to enable HTTPS with MINIO. 
+            // Configuration shared by all the associated storages. 
             tls: {
-              // Certificate authority to authenticate the server.
-              root_ca_certificate: "./certificates/minio/ca.pem",
+              private: {
+                
+                // Certificate authority to authenticate the server.
+                root_ca_certificate_file: "<YOUR_CERTIFICATE_PATH>",
+                // Alternatively you can inline your certificate:
+                // - encoded with base 64:
+                root_ca_certificate_base64: "<YOUR_CERTIFICATE_ENCODED_WITH_BASE64>",
+                // - raw certificate:
+                root_ca_certificate_raw: "<YOUR_RAW_CERTIFICATE>",
+              }
             },
         }
       },

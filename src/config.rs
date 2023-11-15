@@ -17,7 +17,7 @@ use aws_sdk_s3::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use serde_json::{Map, Value};
-use std::{fs::File, io::BufReader};
+use std::io::BufReader;
 use webpki::TrustAnchor;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
@@ -36,7 +36,10 @@ const PROP_STORAGE_ON_CLOSURE: &str = "on_closure";
 const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 
 // TLS properties
-const PROP_TLS_ROOT_CA: &str = "root_ca_certificate";
+pub const TLS_PROP: &str = "tls";
+pub const TLS_ROOT_CA_CERTIFICATE_FILE: &str = "root_ca_certificate_file";
+pub const TLS_ROOT_CA_CERTIFICATE_RAW: &str = "root_ca_certificate_raw";
+pub const TLS_ROOT_CA_CERTIFICATE_BASE64: &str = "root_ca_certificate_base64";
 
 pub enum OnClosure {
     DestroyBucket,
@@ -252,15 +255,36 @@ impl TlsClientConfig {
     pub fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
         log::debug!("Loading TLS config values...");
 
-        let mut root_cert_store = RootCertStore::empty();
-        let root_ca_certificate = match tls_config
-            .get(PROP_TLS_ROOT_CA)
-            .ok_or_else(|| zerror!("Missing property {PROP_TLS_ROOT_CA}."))? {
-                serde_json::Value::String(value) => Ok(value),
-                _ => Err(zerror!("Property {PROP_TLS_ROOT_CA} must be of type string and point to the path of the root certificate."))
-            }?;
+        // Allows mixed user-generated CA and webPKI CA
+        log::debug!("Loading default Web PKI certificates.");
+        let mut root_cert_store: RootCertStore = RootCertStore {
+            roots: Self::load_default_webpki_certs().roots,
+        };
 
-        TlsClientConfig::load_trust_anchors(root_ca_certificate.to_string(), &mut root_cert_store)?;
+        if let Some(root_ca_cert_file) = get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_FILE)?
+        {
+            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_FILE}.");
+            Self::load_root_ca_certificate_file_trust_anchors(
+                root_ca_cert_file,
+                &mut root_cert_store,
+            )?;
+        } else if let Some(root_ca_cert_base64) =
+            get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_BASE64)?
+        {
+            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_BASE64}.");
+            Self::load_root_ca_certificate_base64_trust_anchors(
+                root_ca_cert_base64,
+                &mut root_cert_store,
+            )?;
+        } else if let Some(root_ca_cert_raw) =
+            get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_RAW)?
+        {
+            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_RAW}.");
+            Self::load_root_ca_certificate_raw_trust_anchors(
+                root_ca_cert_raw,
+                &mut root_cert_store,
+            )?;
+        }
 
         let client_config = ClientConfig::builder()
             .with_safe_defaults()
@@ -277,21 +301,82 @@ impl TlsClientConfig {
         })
     }
 
-    fn load_trust_anchors(
-        root_ca_certificate: String,
+    fn load_root_ca_certificate_file_trust_anchors(
+        cert: &String,
         root_cert_store: &mut RootCertStore,
     ) -> ZResult<()> {
-        let mut pem = BufReader::new(File::open(root_ca_certificate)?);
-        let certs = rustls_pemfile::certs(&mut pem)?;
-        let trust_anchors = certs.iter().map(|cert| {
-            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+        if cert.is_empty() {
+            log::warn!("Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_FILE}`. Ignornig...");
+            return Ok(());
+        };
+        let pem = BufReader::new(cert.as_bytes());
+        add_trust_anchors(pem, root_cert_store)?;
+        Ok(())
+    }
+
+    fn load_root_ca_certificate_base64_trust_anchors(
+        b64_certificate: &String,
+        root_cert_store: &mut RootCertStore,
+    ) -> ZResult<()> {
+        if b64_certificate.is_empty() {
+            log::warn!(
+                "Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_BASE64}`. Ignornig..."
+            );
+            return Ok(());
+        };
+        let certificate_pem = Self::base64_decode(b64_certificate.as_str())?;
+        let pem = BufReader::new(certificate_pem.as_slice());
+        add_trust_anchors(pem, root_cert_store)?;
+        Ok(())
+    }
+
+    fn load_root_ca_certificate_raw_trust_anchors(
+        raw_certificate: &String,
+        root_cert_store: &mut RootCertStore,
+    ) -> ZResult<()> {
+        if raw_certificate.is_empty() {
+            log::warn!("Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_RAW}`. Ignornig...");
+            return Ok(());
+        };
+        let pem = BufReader::new(raw_certificate.as_bytes());
+        add_trust_anchors(pem, root_cert_store)?;
+        Ok(())
+    }
+
+    fn load_default_webpki_certs() -> RootCertStore {
+        let mut root_cert_store = RootCertStore::empty();
+        root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
             OwnedTrustAnchor::from_subject_spki_name_constraints(
                 ta.subject,
                 ta.spki,
                 ta.name_constraints,
             )
-        });
-        root_cert_store.add_trust_anchors(trust_anchors.into_iter());
-        Ok(())
+        }));
+        root_cert_store
     }
+
+    pub fn base64_decode(data: &str) -> ZResult<Vec<u8>> {
+        use base64::engine::general_purpose;
+        use base64::Engine;
+        Ok(general_purpose::STANDARD
+            .decode(data)
+            .map_err(|e| zerror!("Unable to perform base64 decoding: {e:?}"))?)
+    }
+}
+
+fn add_trust_anchors(
+    mut pem: BufReader<&[u8]>,
+    root_cert_store: &mut RootCertStore,
+) -> ZResult<()> {
+    let certs = rustls_pemfile::certs(&mut pem)?;
+    let trust_anchors = certs.iter().map(|cert| {
+        let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+        OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    });
+    root_cert_store.add_trust_anchors(trust_anchors.into_iter());
+    Ok(())
 }
