@@ -126,7 +126,7 @@ impl Volume for S3Backend {
     }
 
     async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
-        log::debug!("Creating storage {:?}", config);
+        log::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
         let client = S3Client::new(
