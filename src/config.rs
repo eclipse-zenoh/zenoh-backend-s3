@@ -17,7 +17,7 @@ use aws_sdk_s3::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use serde_json::{Map, Value};
-use std::io::BufReader;
+use std::{fs::File, io::BufReader};
 use webpki::TrustAnchor;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
@@ -38,7 +38,6 @@ const DEFAULT_PROVIDER: &str = "zenoh-s3-backend";
 // TLS properties
 pub const TLS_PROP: &str = "tls";
 pub const TLS_ROOT_CA_CERTIFICATE_FILE: &str = "root_ca_certificate_file";
-pub const TLS_ROOT_CA_CERTIFICATE_RAW: &str = "root_ca_certificate_raw";
 pub const TLS_ROOT_CA_CERTIFICATE_BASE64: &str = "root_ca_certificate_base64";
 
 pub enum OnClosure {
@@ -276,14 +275,6 @@ impl TlsClientConfig {
                 root_ca_cert_base64,
                 &mut root_cert_store,
             )?;
-        } else if let Some(root_ca_cert_raw) =
-            get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_RAW)?
-        {
-            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_RAW}.");
-            Self::load_root_ca_certificate_raw_trust_anchors(
-                root_ca_cert_raw,
-                &mut root_cert_store,
-            )?;
         }
 
         let client_config = ClientConfig::builder()
@@ -302,15 +293,25 @@ impl TlsClientConfig {
     }
 
     fn load_root_ca_certificate_file_trust_anchors(
-        cert: &String,
+        root_ca_cert_file: &String,
         root_cert_store: &mut RootCertStore,
     ) -> ZResult<()> {
-        if cert.is_empty() {
+        if root_ca_cert_file.is_empty() {
             log::warn!("Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_FILE}`. Ignornig...");
             return Ok(());
         };
-        let pem = BufReader::new(cert.as_bytes());
-        add_trust_anchors(pem, root_cert_store)?;
+
+        let mut pem = BufReader::new(File::open(root_ca_cert_file)?);
+        let certs = rustls_pemfile::certs(&mut pem)?;
+        let trust_anchors = certs.iter().map(|cert| {
+            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        });
+        root_cert_store.add_trust_anchors(trust_anchors.into_iter());
         Ok(())
     }
 
@@ -325,21 +326,17 @@ impl TlsClientConfig {
             return Ok(());
         };
         let certificate_pem = Self::base64_decode(b64_certificate.as_str())?;
-        let pem = BufReader::new(certificate_pem.as_slice());
-        add_trust_anchors(pem, root_cert_store)?;
-        Ok(())
-    }
-
-    fn load_root_ca_certificate_raw_trust_anchors(
-        raw_certificate: &String,
-        root_cert_store: &mut RootCertStore,
-    ) -> ZResult<()> {
-        if raw_certificate.is_empty() {
-            log::warn!("Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_RAW}`. Ignornig...");
-            return Ok(());
-        };
-        let pem = BufReader::new(raw_certificate.as_bytes());
-        add_trust_anchors(pem, root_cert_store)?;
+        let mut pem = BufReader::new(certificate_pem.as_slice());
+        let certs = rustls_pemfile::certs(&mut pem)?;
+        let trust_anchors = certs.iter().map(|cert| {
+            let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        });
+        root_cert_store.add_trust_anchors(trust_anchors.into_iter());
         Ok(())
     }
 
@@ -362,21 +359,4 @@ impl TlsClientConfig {
             .decode(data)
             .map_err(|e| zerror!("Unable to perform base64 decoding: {e:?}"))?)
     }
-}
-
-fn add_trust_anchors(
-    mut pem: BufReader<&[u8]>,
-    root_cert_store: &mut RootCertStore,
-) -> ZResult<()> {
-    let certs = rustls_pemfile::certs(&mut pem)?;
-    let trust_anchors = certs.iter().map(|cert| {
-        let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    });
-    root_cert_store.add_trust_anchors(trust_anchors.into_iter());
-    Ok(())
 }

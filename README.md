@@ -90,11 +90,8 @@ If successful, then the console can be accessed on http://localhost:9090.
             //    // Certificate authority to authenticate the server.
             //    root_ca_certificate_file: "/home/user/certificates/minio/ca.pem",
             //
-            //    // Alternatively you can inline your certificate:
-            //    // - encoded with base 64:
+            //    // Alternatively you can inline your certificate encoded with base 64:
             //    root_ca_certificate_base64: "<YOUR_CERTIFICATE_ENCODED_WITH_BASE64>"
-            //    // - raw:
-            //    root_ca_certificate_raw: "<YOUR_RAW_CERTIFICATE>"
             //  }
             //},
           },
@@ -256,7 +253,7 @@ tls: {
 ```
 
 Here, the `root_ca_certificate_file` corresponds to the generated _minica.pem_ file.
-You can also embed directly the root_ca_certificate by inlining it under the fileds `root_ca_certificate_base64` or `root_ca_certificate_raw` depending on the encoding.
+You can also embed directly the root_ca_certificate by inlining it under the filed `root_ca_certificate_base64`, encoded with base64.
 
 The _cert.pem_ and _key.pem_ files correspond to the public certificate and private key respectively. We need to rename them as _public.crt_ and _private.key_ respectively and store them under the MinIO configuration directory (as specified in the [MinIO documentation](https://min.io/docs/minio/linux/operations/network-encryption.html#enabling-tls)). In case you are using running a docker container as previously shown, then we will need to mount the folder containing the certificates as a volume; supposing we stored our certificates under `${HOME}/minio/certs`, we need to start our container as follows:
 
