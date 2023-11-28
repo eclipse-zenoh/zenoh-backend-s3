@@ -20,7 +20,7 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use client::S3Client;
-use config::{S3Config, TlsClientConfig};
+use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use utils::S3Key;
@@ -48,9 +48,6 @@ pub const NONE_KEY: &str = "@@none_key@@";
 
 // Metadata keys
 pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
-
-// TLS properties
-const PROP_TLS: &str = "tls";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
 // operations.
@@ -108,10 +105,10 @@ fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResul
 }
 
 fn load_tls_config(config: &VolumeConfig) -> ZResult<Option<TlsClientConfig>> {
-    match config.rest.get(PROP_TLS) {
+    match config.rest.get(TLS_PROP) {
         Some(serde_json::Value::Object(tls_config)) => Ok(Some(TlsClientConfig::new(tls_config)?)),
         None => Ok(None),
-        _ => Err(zerror!("Property {PROP_TLS} is malformed.").into()),
+        _ => Err(zerror!("Property {TLS_PROP} is malformed.").into()),
     }
 }
 
@@ -129,7 +126,7 @@ impl Volume for S3Backend {
     }
 
     async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
-        log::debug!("Creating storage {:?}", config);
+        log::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
         let client = S3Client::new(

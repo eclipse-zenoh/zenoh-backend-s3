@@ -3328,6 +3328,7 @@ dependencies = [
  "tokio",
  "uhlc 0.5.2",
  "webpki",
+ "webpki-roots",
  "zenoh",
  "zenoh-buffers",
  "zenoh-codec",

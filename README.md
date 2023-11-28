@@ -85,10 +85,15 @@ If successful, then the console can be accessed on http://localhost:9090.
 
             // Optional TLS specific parameters to enable HTTPS with MinIO. Configuration shared by
             // all the associated storages.
-            tls: {
-              // Certificate authority to authenticate the server.
-              root_ca_certificate: "/home/user/certificates/minio/ca.pem",
-            },
+            // tls: {
+            //  private: {
+            //    // Certificate authority to authenticate the server.
+            //    root_ca_certificate_file: "/home/user/certificates/minio/ca.pem",
+            //
+            //    // Alternatively you can inline your certificate encoded with base 64:
+            //    root_ca_certificate_base64: "<YOUR_CERTIFICATE_ENCODED_WITH_BASE64>"
+            //  }
+            //},
           },
         },
         storages: {
@@ -236,16 +241,19 @@ a private key, a public certificate and a certificate authority certificate is g
     └── minica.pem
 ```
 
-On the config file, we need to specify the `root_ca_certificate` as this will allow the s3 plugin to validate the MinIO server keys.
+On the config file, we need to specify the `root_ca_certificate_file` as this will allow the s3 plugin to validate the MinIO server keys.
 Example:
 
 ```
 tls: {
-  root_ca_certificate: "/home/user/certificates/minio/minica.pem",
+  private: {
+    root_ca_certificate_file: "/home/user/certificates/minio/minica.pem",
+  },
 },
 ```
 
-Here, the `root_ca_certificate` corresponds to the generated _minica.pem_ file.
+Here, the `root_ca_certificate_file` corresponds to the generated _minica.pem_ file.
+You can also embed directly the root_ca_certificate by inlining it under the filed `root_ca_certificate_base64`, encoded with base64.
 
 The _cert.pem_ and _key.pem_ files correspond to the public certificate and private key respectively. We need to rename them as _public.crt_ and _private.key_ respectively and store them under the MinIO configuration directory (as specified in the [MinIO documentation](https://min.io/docs/minio/linux/operations/network-encryption.html#enabling-tls)). In case you are using running a docker container as previously shown, then we will need to mount the folder containing the certificates as a volume; supposing we stored our certificates under `${HOME}/minio/certs`, we need to start our container as follows:
 
@@ -264,9 +272,11 @@ storage_manager: {
 
         // Configure TLS specific parameters
         tls: {
-          root_ca_certificate: "/home/user/certificates/minio_certs/minica.pem",
+          private: {
+            root_ca_certificate_file: "/home/user/certificates/minio_certs/minica.pem",
+          },
         },
-    }
+    },
   },
 ```
 
