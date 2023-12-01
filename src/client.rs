@@ -26,7 +26,7 @@ use aws_sdk_s3::{Credentials, Endpoint, Region};
 use aws_smithy_client::hyper_ext;
 use zenoh::value::Value;
 use zenoh::Result as ZResult;
-use zenoh_buffers::SplitBuffer;
+use zenoh_buffers::buffer::SplitBuffer;
 use zenoh_core::zerror;
 
 use crate::config::TlsClientConfig;
