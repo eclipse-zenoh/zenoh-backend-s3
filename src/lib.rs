@@ -202,10 +202,14 @@ impl Storage for S3Storage {
 
         let prefix = self.config.path_prefix.to_owned();
         let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
-        let (timestamp, value) = self.get_stored_value(&s3_key.into()).await?;
 
-        let stored_data = StoredData { value, timestamp };
-        Ok(vec![stored_data])
+        let get_result = self.get_stored_value(&s3_key.into()).await?;
+        if let Some((timestamp, value)) = get_result {
+            let stored_data = StoredData { value, timestamp };
+            Ok(vec![stored_data])
+        } else {
+            Ok(vec![])
+        }
     }
 
     /// Function called for each incoming data ([`Sample`]) to be stored in this storage.
@@ -317,15 +321,24 @@ impl Storage for S3Storage {
 }
 
 impl S3Storage {
-    async fn get_stored_value(&self, key: &String) -> ZResult<(Timestamp, Value)> {
+    async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
         let client2 = self.client.clone();
         let key2 = key.to_owned();
-        let output_result = self
+
+        let output_result = match self
             .runtime
             .spawn(async move { client2.get_object(key2.as_str()).await })
             .await
             .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
-            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
+        {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                if e.to_string().contains("NoSuchKey") {
+                    return Ok(None);
+                }
+                Err(zerror!("Get operation failed for key '{key}': {e}"))
+            }
+        }?;
 
         let metadata = output_result
             .metadata
@@ -354,7 +367,7 @@ impl S3Storage {
             ),
             None => Value::from(Vec::from(bytes)),
         };
-        Ok((timestamp, value))
+        Ok(Some((timestamp, value)))
     }
 }
 
