@@ -43,7 +43,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo fmt --all-targets -- --deny warnings
+        run: cargo clippy --all-targets -- --deny warnings
 
       - name: Build
         run: cargo build --verbose --all-targets
