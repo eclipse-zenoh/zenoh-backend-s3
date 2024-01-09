@@ -50,7 +50,7 @@ impl From<S3Key> for String {
         s3_key.prefix.as_ref().map_or_else(
             // For compatibility purposes between Amazon S3 and MinIO S3 implementations we trim
             // the '/' character.
-            || format!("/{}", s3_key.key.trim_start_matches('/')),
+            || s3_key.key.trim_start_matches('/').to_owned(),
             |prefix| s3_key.key.trim_start_matches(prefix).to_owned(),
         )
     }
