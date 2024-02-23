@@ -24,6 +24,7 @@ use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use utils::S3Key;
+use zenoh_plugin_trait::{plugin_version, Plugin};
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -53,44 +54,48 @@ pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 // operations.
 const STORAGE_WORKER_THREADS: usize = 2;
 
-const GIT_VERSION: &str = git_version::git_version!(prefix = "v", cargo_prefix = "v");
-lazy_static::lazy_static! {
-    static ref LONG_VERSION: String = format!("{} built with {}", GIT_VERSION, env!("RUSTC_VERSION"));
-}
+pub struct S3Backend {}
+zenoh_plugin_trait::declare_plugin!(S3Backend);
 
-#[allow(dead_code)]
-const CREATE_BACKEND_TYPECHECK: CreateVolume = create_volume;
+impl Plugin for S3Backend {
+    type StartArgs = VolumeConfig;
+    type Instance = VolumeInstance;
 
-#[no_mangle]
-pub fn create_volume(mut config: VolumeConfig) -> ZResult<Box<dyn Volume>> {
-    // For some reasons env_logger is sometime not active in a loaded library.
-    // Try to activate it here, ignoring failures.
-    let _ = env_logger::try_init();
-    log::debug!("S3 Backend {}", LONG_VERSION.as_str());
+    const DEFAULT_NAME: &'static str = "s3_backend";
+    const PLUGIN_VERSION: &'static str = plugin_version!();
+    const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
-    config
-        .rest
-        .insert("version".into(), LONG_VERSION.clone().into());
+    fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
+        // For some reasons env_logger is sometime not active in a loaded library.
+        // Try to activate it here, ignoring failures.
+        let _ = env_logger::try_init();
+        log::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
-    let endpoint = get_optional_string_property(PROP_S3_ENDPOINT, &config)?;
-    let region = get_optional_string_property(PROP_S3_REGION, &config)?;
+        let mut config = config.clone();
+        config
+            .rest
+            .insert("version".into(), Self::PLUGIN_LONG_VERSION.into());
 
-    let mut properties = Properties::default();
-    properties.insert("version".into(), LONG_VERSION.clone());
+        let endpoint = get_optional_string_property(PROP_S3_ENDPOINT, &config)?;
+        let region = get_optional_string_property(PROP_S3_REGION, &config)?;
 
-    let admin_status = HashMap::from(properties)
-        .into_iter()
-        .map(|(k, v)| (k, serde_json::Value::String(v)))
-        .collect();
+        let mut properties = Properties::default();
+        properties.insert("version".into(), Self::PLUGIN_LONG_VERSION.into());
 
-    let tls_config = load_tls_config(&config)?;
+        let admin_status = HashMap::from(properties)
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect();
 
-    Ok(Box::new(S3Backend {
-        admin_status,
-        endpoint,
-        region,
-        tls_config,
-    }))
+        let tls_config = load_tls_config(&config)?;
+
+        Ok(Box::new(S3Volume {
+            admin_status,
+            endpoint,
+            region,
+            tls_config,
+        }))
+    }
 }
 
 fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResult<Option<String>> {
@@ -112,7 +117,7 @@ fn load_tls_config(config: &VolumeConfig) -> ZResult<Option<TlsClientConfig>> {
     }
 }
 
-pub struct S3Backend {
+pub struct S3Volume {
     admin_status: serde_json::Value,
     endpoint: Option<String>,
     region: Option<String>,
@@ -120,12 +125,12 @@ pub struct S3Backend {
 }
 
 #[async_trait]
-impl Volume for S3Backend {
+impl Volume for S3Volume {
     fn get_admin_status(&self) -> serde_json::Value {
         self.admin_status.clone()
     }
 
-    async fn create_storage(&mut self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
+    async fn create_storage(&self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
         log::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
