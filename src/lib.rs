@@ -281,22 +281,37 @@ impl Storage for S3Storage {
             .map_err(|e| zerror!("Get operation failed: {e}"))?
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
-        let futures = objects.into_iter().map(|object| {
+        let futures = objects.into_iter().filter_map(|object| {
+            let object_key = match object.key() {
+                Some(key) => key,
+                None => {
+                    log::error!("Could not get key for object {:?}", object);
+                    return None;
+                }
+            };
+
+            if object_key == NONE_KEY {
+                return None;
+            }
+
+            let key_expr: OwnedKeyExpr = match object_key.try_into() {
+                Ok(key_expr) => key_expr,
+                Err(err) => {
+                    log::error!("Error filtering storage entries: ${err}.");
+                    return None;
+                }
+            };
+
+            if !key_expr.intersects(&self.config.key_expr) {
+                return None;
+            }
+
             let client = self.client.clone();
-            self.runtime.spawn(async move {
-                let key = object
-                    .key()
-                    .ok_or_else(|| zerror!("Could not get key for object {:?}", object))?;
-                let result = client.get_head_object(key).await;
+            let key = object_key.to_owned();
+            Some(self.runtime.spawn(async move {
+                let result = client.get_head_object(&key).await;
                 match result {
                     Ok(value) => {
-                        let key_expr = if key == NONE_KEY {
-                            None
-                        } else {
-                            Some(OwnedKeyExpr::try_from(key).map_err(|err| {
-                                zerror!("Unable to recreate key expression for '{}': {}.", key, err)
-                            })?)
-                        };
                         let metadata = value.metadata.ok_or_else(|| {
                             zerror!("Unable to retrieve metadata for key '{}'.", key)
                         })?;
@@ -304,7 +319,7 @@ impl Storage for S3Storage {
                             zerror!("Unable to retrieve timestamp for key '{}'.", key)
                         })?;
                         Ok((
-                            key_expr,
+                            Some(key_expr),
                             Timestamp::from_str(timestamp.as_str()).map_err(|e| {
                                 zerror!("Unable to obtain timestamp for key: {}. {:?}", key, e)
                             })?,
@@ -316,7 +331,7 @@ impl Storage for S3Storage {
                         err
                     )),
                 }
-            })
+            }))
         });
         let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
         let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> =
