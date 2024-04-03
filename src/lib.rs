@@ -281,9 +281,10 @@ impl Storage for S3Storage {
             .map_err(|e| zerror!("Get operation failed: {e}"))?
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
+        let path_prefix = self.config.path_prefix.to_owned();
         let futures = objects.into_iter().filter_map(|object| {
             let object_key = match object.key() {
-                Some(key) => key,
+                Some(key) => key.to_string(),
                 None => {
                     log::error!("Could not get key for object {:?}", object);
                     return None;
@@ -294,7 +295,13 @@ impl Storage for S3Storage {
                 return None;
             }
 
-            let key_expr: OwnedKeyExpr = match object_key.try_into() {
+            let key = path_prefix
+                .as_ref()
+                .map_or(object_key.to_string(), |prefix| {
+                    prefix.to_owned() + &object_key.to_string()
+                });
+
+            let key_expr: OwnedKeyExpr = match key.try_into() {
                 Ok(key_expr) => key_expr,
                 Err(err) => {
                     log::error!("Error filtering storage entries: ${err}.");
