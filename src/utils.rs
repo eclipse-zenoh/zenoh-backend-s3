@@ -56,29 +56,15 @@ impl From<S3Key> for String {
     }
 }
 
-impl TryFrom<S3Key> for KeyExpr<'_> {
+impl TryFrom<&S3Key> for KeyExpr<'_> {
     type Error = zenoh_core::Error;
-    fn try_from(s3_key: S3Key) -> ZResult<Self> {
+    fn try_from(s3_key: &S3Key) -> ZResult<Self> {
         s3_key.prefix.as_ref().map_or_else(
             || KeyExpr::try_from(s3_key.key.to_owned()),
             |prefix| {
                 // For compatibility purposes between Amazon S3 and MinIO S3 implementations we
                 // trim the '/' character.
                 KeyExpr::try_from(format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')))
-            },
-        )
-    }
-}
-
-impl TryFrom<&S3Key> for OwnedKeyExpr {
-    type Error = zenoh_core::Error;
-    fn try_from(s3_key: &S3Key) -> ZResult<Self> {
-        s3_key.prefix.as_ref().map_or_else(
-            || OwnedKeyExpr::try_from(s3_key.key.to_owned()),
-            |prefix| {
-                // For compatibility purposes between Amazon S3 and MinIO S3 implementations we
-                // trim the '/' character.
-                OwnedKeyExpr::try_from(format!("{}/{}", prefix, s3_key.key.trim_start_matches('/')))
             },
         )
     }

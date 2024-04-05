@@ -295,22 +295,22 @@ impl Storage for S3Storage {
             }
 
             let prefix = self.config.path_prefix.to_owned();
-            let s3_key = S3Key::from_key(prefix, object_key);
-            let key_expr = match OwnedKeyExpr::try_from(&s3_key) {
-                Ok(key) => key,
+            let s3_key = S3Key::from_key(prefix, object_key.to_owned());
+            match KeyExpr::try_from(&s3_key) {
+                Ok(key) => {
+                    if !key.intersects(&self.config.key_expr) {
+                        return None;
+                    }
+                }
                 Err(err) => {
                     log::error!("Error filtering storage entries: ${err}.");
                     return None;
                 }
             };
 
-            if !key_expr.intersects(&self.config.key_expr) {
-                return None;
-            }
-
             let client = self.client.clone();
             Some(self.runtime.spawn(async move {
-                let result = client.get_head_object(&s3_key.key).await;
+                let result = client.get_head_object(&object_key).await;
                 match result {
                     Ok(value) => {
                         let metadata = value.metadata.ok_or_else(|| {
@@ -318,6 +318,13 @@ impl Storage for S3Storage {
                         })?;
                         let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
                             zerror!("Unable to retrieve timestamp for key '{}'.", s3_key)
+                        })?;
+                        let key_expr = OwnedKeyExpr::from_str(&object_key).map_err(|err| {
+                            zerror!(
+                                "Unable to generate key expression for key '{}': {}",
+                                &object_key,
+                                &err
+                            )
                         })?;
                         Ok((
                             Some(key_expr),
