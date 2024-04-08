@@ -283,16 +283,13 @@ impl Storage for S3Storage {
 
         let futures = objects.into_iter().filter_map(|object| {
             let object_key = match object.key() {
+                Some(key) if key == NONE_KEY => return None,
                 Some(key) => key.to_string(),
                 None => {
                     log::error!("Could not get key for object {:?}", object);
                     return None;
                 }
             };
-
-            if object_key == NONE_KEY {
-                return None;
-            }
 
             let prefix = self.config.path_prefix.to_owned();
             let s3_key = S3Key::from_key(prefix, object_key.to_owned());
