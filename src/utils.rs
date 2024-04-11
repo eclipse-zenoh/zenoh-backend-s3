@@ -19,23 +19,23 @@ use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_keyexpr::OwnedKeyExpr;
 
-pub struct S3Value {
-    pub key: S3Key,
+pub struct S3Value<'a> {
+    pub key: S3Key<'a>,
     pub value: Value,
     pub metadata: Option<HashMap<String, String>>,
 }
 
-pub struct S3Key {
-    pub prefix: Option<String>,
+pub struct S3Key<'a> {
+    pub prefix: &'a Option<String>,
     pub key: String,
 }
 
-impl S3Key {
-    pub fn from_key(prefix: Option<String>, key: String) -> Self {
+impl<'a> S3Key<'a> {
+    pub fn from_key(prefix: &'a Option<String>, key: String) -> Self {
         Self { prefix, key }
     }
 
-    pub fn from_key_expr(prefix: Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
+    pub fn from_key_expr(prefix: &'a Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
         let mut key = key_expr.as_str();
         key = key.trim_start_matches('/');
         Ok(Self {
@@ -45,7 +45,7 @@ impl S3Key {
     }
 }
 
-impl From<S3Key> for String {
+impl From<S3Key<'_>> for String {
     fn from(s3_key: S3Key) -> Self {
         s3_key.prefix.as_ref().map_or_else(
             // For compatibility purposes between Amazon S3 and MinIO S3 implementations we trim
@@ -56,7 +56,7 @@ impl From<S3Key> for String {
     }
 }
 
-impl TryFrom<&S3Key> for KeyExpr<'_> {
+impl TryFrom<&S3Key<'_>> for KeyExpr<'_> {
     type Error = zenoh_core::Error;
     fn try_from(s3_key: &S3Key) -> ZResult<Self> {
         s3_key.prefix.as_ref().map_or_else(
@@ -70,7 +70,7 @@ impl TryFrom<&S3Key> for KeyExpr<'_> {
     }
 }
 
-impl std::fmt::Display for S3Key {
+impl std::fmt::Display for S3Key<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.prefix {
             Some(prefix) => write!(f, "{}/{}", prefix, self.key),

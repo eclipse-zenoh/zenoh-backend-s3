@@ -205,8 +205,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("GET called on client {}. Key: '{}'", self.client, key);
 
-        let prefix = self.config.path_prefix.to_owned();
-        let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
+        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key.to_owned())?;
 
         let get_result = self.get_stored_value(&s3_key.into()).await?;
         if let Some((timestamp, value)) = get_result {
@@ -227,7 +226,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)
+        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key)
             .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
@@ -255,7 +254,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Delete called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)?;
+        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
             let key2 = s3_key.into();
@@ -291,8 +290,7 @@ impl Storage for S3Storage {
                 }
             };
 
-            let prefix = self.config.path_prefix.to_owned();
-            let s3_key = S3Key::from_key(prefix, object_key.to_owned());
+            let s3_key = S3Key::from_key(&self.config.path_prefix, object_key.to_owned());
             match KeyExpr::try_from(&s3_key) {
                 Ok(key) => {
                     if !key.intersects(&self.config.key_expr) {
@@ -311,10 +309,10 @@ impl Storage for S3Storage {
                 match result {
                     Ok(value) => {
                         let metadata = value.metadata.ok_or_else(|| {
-                            zerror!("Unable to retrieve metadata for key '{}'.", s3_key)
+                            zerror!("Unable to retrieve metadata for key '{}'.", object_key)
                         })?;
                         let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
-                            zerror!("Unable to retrieve timestamp for key '{}'.", s3_key)
+                            zerror!("Unable to retrieve timestamp for key '{}'.", object_key)
                         })?;
                         let key_expr = OwnedKeyExpr::from_str(&object_key).map_err(|err| {
                             zerror!(
@@ -326,13 +324,17 @@ impl Storage for S3Storage {
                         Ok((
                             Some(key_expr),
                             Timestamp::from_str(timestamp.as_str()).map_err(|e| {
-                                zerror!("Unable to obtain timestamp for key: {}. {:?}", s3_key, e)
+                                zerror!(
+                                    "Unable to obtain timestamp for key: {}. {:?}",
+                                    object_key,
+                                    e
+                                )
                             })?,
                         ))
                     }
                     Err(err) => Err(zerror!(
                         "Unable to get '{}' object from storage: {}",
-                        s3_key,
+                        object_key,
                         err
                     )),
                 }
