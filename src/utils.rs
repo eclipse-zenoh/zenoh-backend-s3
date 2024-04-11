@@ -12,18 +12,10 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 use core::fmt;
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use zenoh::prelude::KeyExpr;
-use zenoh::value::Value;
 use zenoh::Result as ZResult;
 use zenoh_keyexpr::OwnedKeyExpr;
-
-pub struct S3Value<'a> {
-    pub key: S3Key<'a>,
-    pub value: Value,
-    pub metadata: Option<HashMap<String, String>>,
-}
 
 pub struct S3Key<'a> {
     pub prefix: &'a Option<String>,
