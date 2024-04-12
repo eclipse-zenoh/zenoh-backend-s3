@@ -66,7 +66,7 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
-        zenoh_util::init_log();
+        zenoh_util::init_log_from_env();
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
         let mut config = config.clone();
