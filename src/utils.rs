@@ -18,16 +18,16 @@ use zenoh::Result as ZResult;
 use zenoh_keyexpr::OwnedKeyExpr;
 
 pub struct S3Key<'a> {
-    pub prefix: &'a Option<String>,
+    pub prefix: Option<&'a String>,
     pub key: String,
 }
 
 impl<'a> S3Key<'a> {
-    pub fn from_key(prefix: &'a Option<String>, key: String) -> Self {
+    pub fn from_key(prefix: Option<&'a String>, key: String) -> Self {
         Self { prefix, key }
     }
 
-    pub fn from_key_expr(prefix: &'a Option<String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
+    pub fn from_key_expr(prefix: Option<&'a String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
         let mut key = key_expr.as_str();
         key = key.trim_start_matches('/');
         Ok(Self {
@@ -39,7 +39,7 @@ impl<'a> S3Key<'a> {
 
 impl From<S3Key<'_>> for String {
     fn from(s3_key: S3Key) -> Self {
-        s3_key.prefix.as_ref().map_or_else(
+        s3_key.prefix.map_or_else(
             // For compatibility purposes between Amazon S3 and MinIO S3 implementations we trim
             // the '/' character.
             || s3_key.key.trim_start_matches('/').to_owned(),
@@ -51,7 +51,7 @@ impl From<S3Key<'_>> for String {
 impl TryFrom<&S3Key<'_>> for KeyExpr<'_> {
     type Error = zenoh_core::Error;
     fn try_from(s3_key: &S3Key) -> ZResult<Self> {
-        s3_key.prefix.as_ref().map_or_else(
+        s3_key.prefix.map_or_else(
             || KeyExpr::try_from(s3_key.key.to_owned()),
             |prefix| {
                 // For compatibility purposes between Amazon S3 and MinIO S3 implementations we

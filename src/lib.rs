@@ -205,7 +205,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("GET called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key.to_owned())?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key.to_owned())?;
 
         let get_result = self.get_stored_value(&s3_key.into()).await?;
         if let Some((timestamp, value)) = get_result {
@@ -226,7 +226,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key)
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)
             .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
@@ -254,7 +254,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         log::debug!("Delete called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(&self.config.path_prefix, key)?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
             let key2 = s3_key.into();
@@ -290,7 +290,7 @@ impl Storage for S3Storage {
                 }
             };
 
-            let s3_key = S3Key::from_key(&self.config.path_prefix, object_key.to_owned());
+            let s3_key = S3Key::from_key(self.config.path_prefix.as_ref(), object_key.to_owned());
             match KeyExpr::try_from(&s3_key) {
                 Ok(key) => {
                     if !key.intersects(&self.config.key_expr) {
