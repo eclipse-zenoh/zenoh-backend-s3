@@ -29,10 +29,7 @@ impl<'a> S3Key<'a> {
             }
             None => OwnedKeyExpr::try_from(key.trim_start_matches('/'))?,
         };
-        Ok(Self {
-            prefix,
-            key_expr,
-        })
+        Ok(Self { prefix, key_expr })
     }
 
     pub fn from_key_expr(prefix: Option<&'a String>, key_expr: OwnedKeyExpr) -> ZResult<Self> {
@@ -42,10 +39,7 @@ impl<'a> S3Key<'a> {
             }
             None => key_expr,
         };
-        Ok(Self {
-            prefix,
-            key_expr,
-        })
+        Ok(Self { prefix, key_expr })
     }
 }
 
