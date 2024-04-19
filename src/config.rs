@@ -106,7 +106,7 @@ impl S3Config {
     pub async fn new(config: &StorageConfig) -> ZResult<Self> {
         let credentials = S3Config::load_credentials(config)?;
         let path_prefix = S3Config::load_path_prefix(config)?;
-        let key_expr = S3Config::load_key_expr(config)?;
+        let key_expr = config.key_expr.to_owned();
         let bucket = S3Config::load_bucket_name(config)?;
         let is_read_only = S3Config::is_read_only(config)?;
         let on_closure = S3Config::load_on_closure(config)?;
@@ -150,10 +150,6 @@ impl S3Config {
             Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
             _ => Err(zerror!("Property '{PROP_S3_BUCKET}' was not specified!")),
         }?)
-    }
-
-    fn load_key_expr(config: &StorageConfig) -> ZResult<OwnedKeyExpr> {
-        Ok(config.key_expr.to_owned())
     }
 
     fn load_path_prefix(config: &StorageConfig) -> ZResult<Option<String>> {
