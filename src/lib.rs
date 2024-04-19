@@ -290,10 +290,9 @@ impl Storage for S3Storage {
                 }
             };
 
-            let s3_key = S3Key::from_key(self.config.path_prefix.as_ref(), object_key.to_owned());
-            match KeyExpr::try_from(&s3_key) {
-                Ok(key) => {
-                    if !key.intersects(&self.config.key_expr) {
+            match S3Key::from_key(self.config.path_prefix.as_ref(), object_key.to_owned()) {
+                Ok(s3_key) => {
+                    if !s3_key.key_expr.intersects(&self.config.key_expr) {
                         return None;
                     }
                 }
