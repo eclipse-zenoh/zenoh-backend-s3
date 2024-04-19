@@ -68,7 +68,7 @@ impl S3Client {
                 // aws_sdk_s3 crate. However when working with the MinIO S3 implementation (where
                 // the region is not considered) then in the config file the region is optional and
                 // we instead specify an empty region here below.
-                log::debug!("Region not specified. Setting empty region...");
+                tracing::debug!("Region not specified. Setting empty region...");
                 config_loader.region(Region::new(""))
             }
         };
@@ -78,7 +78,7 @@ impl S3Client {
                 endpoint.parse().expect("Invalid endpoint: "),
             )),
             None => {
-                log::debug!("Endpoint not specified.");
+                tracing::debug!("Endpoint not specified.");
                 config_loader
             }
         };
@@ -238,7 +238,7 @@ impl S3Client {
             .bucket(&self.bucket)
             .send()
             .await?;
-        log::debug!("Deleted bucket '{}'.", self.bucket.to_owned());
+        tracing::debug!("Deleted bucket '{}'.", self.bucket.to_owned());
         Ok(())
     }
 

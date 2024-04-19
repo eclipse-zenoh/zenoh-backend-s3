@@ -66,10 +66,8 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
-        // For some reasons env_logger is sometime not active in a loaded library.
-        // Try to activate it here, ignoring failures.
-        let _ = env_logger::try_init();
-        log::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
+        zenoh_util::try_init_log_from_env();
+        tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
         let mut config = config.clone();
         config
@@ -102,7 +100,7 @@ fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResul
     match config.rest.get(property) {
         Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
         None => {
-            log::debug!("Property '{property}' was not specified. ");
+            tracing::debug!("Property '{property}' was not specified. ");
             Ok(None)
         }
         _ => Err(zerror!("Property '{property}' for S3 Backend must be a string.").into()),
@@ -131,7 +129,7 @@ impl Volume for S3Volume {
     }
 
     async fn create_storage(&self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
-        log::debug!("Creating storage...");
+        tracing::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
         let client = S3Client::new(
@@ -147,8 +145,8 @@ impl Volume for S3Volume {
             .create_bucket(config.reuse_bucket_is_enabled)
             .map_err(|e| zerror!("Couldn't create storage: {e}"))?
             .map_or_else(
-                || log::debug!("Reusing existing bucket '{}'.", client),
-                |_| log::debug!("Bucket '{}' successfully created.", client),
+                || tracing::debug!("Reusing existing bucket '{}'.", client),
+                |_| tracing::debug!("Bucket '{}' successfully created.", client),
             );
 
         let storage_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -157,7 +155,7 @@ impl Volume for S3Volume {
             .build()
             .map_err(|e| zerror!(e))?;
 
-        log::debug!("Tokio runtime created for storage operations.");
+        tracing::debug!("Tokio runtime created for storage operations.");
 
         Ok(Box::new(S3Storage {
             config,
@@ -203,7 +201,7 @@ impl Storage for S3Storage {
         _parameters: &str,
     ) -> ZResult<Vec<StoredData>> {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
-        log::debug!("GET called on client {}. Key: '{}'", self.client, key);
+        tracing::debug!("GET called on client {}. Key: '{}'", self.client, key);
 
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key.to_owned())?;
 
@@ -224,7 +222,7 @@ impl Storage for S3Storage {
         timestamp: Timestamp,
     ) -> ZResult<StorageInsertionResult> {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
-        log::debug!("Put called on client {}. Key: '{}'", self.client, key);
+        tracing::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)
             .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
@@ -240,7 +238,7 @@ impl Storage for S3Storage {
                 .map_err(|e| zerror!("Put operation failed: {e}"))?;
             Ok(StorageInsertionResult::Inserted)
         } else {
-            log::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
+            tracing::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
             Err("Received update for read-only DB".into())
         }
     }
@@ -252,7 +250,7 @@ impl Storage for S3Storage {
         _timestamp: Timestamp,
     ) -> ZResult<StorageInsertionResult> {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
-        log::debug!("Delete called on client {}. Key: '{}'", self.client, key);
+        tracing::debug!("Delete called on client {}. Key: '{}'", self.client, key);
 
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
         if !self.config.is_read_only {
@@ -266,7 +264,7 @@ impl Storage for S3Storage {
                 .map_err(|e| zerror!("Delete operation failed: {e}"))?;
             Ok(StorageInsertionResult::Deleted)
         } else {
-            log::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
+            tracing::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
             Err("Received update for read-only DB".into())
         }
     }
@@ -285,7 +283,7 @@ impl Storage for S3Storage {
                 Some(key) if key == NONE_KEY => return None,
                 Some(key) => key.to_string(),
                 None => {
-                    log::error!("Could not get key for object {:?}", object);
+                    tracing::error!("Could not get key for object {:?}", object);
                     return None;
                 }
             };
@@ -297,7 +295,7 @@ impl Storage for S3Storage {
                     }
                 }
                 Err(err) => {
-                    log::error!("Error filtering storage entries: ${err}.");
+                    tracing::error!("Error filtering storage entries: ${err}.");
                     return None;
                 }
             };
@@ -346,7 +344,7 @@ impl Storage for S3Storage {
             .filter_map(|x| match x {
                 Ok(value) => Some(value),
                 Err(err) => {
-                    log::error!("{}", err);
+                    tracing::error!("{}", err);
                     None
                 }
             })
@@ -414,18 +412,18 @@ impl Drop for S3Storage {
                 async_std::task::spawn(async move {
                     client2.delete_bucket().await.map_or_else(
                         |e| {
-                            log::debug!(
+                            tracing::debug!(
                                 "Error while closing S3 storage '{}': {}",
                                 client2,
                                 e.to_string()
                             )
                         },
-                        |_| log::debug!("Closing S3 storage '{}'", client2),
+                        |_| tracing::debug!("Closing S3 storage '{}'", client2),
                     );
                 });
             }
             config::OnClosure::DoNothing => {
-                log::debug!(
+                tracing::debug!(
                     "Close S3 storage, keeping bucket '{}' as it is.",
                     self.client
                 );

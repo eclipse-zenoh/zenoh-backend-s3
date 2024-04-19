@@ -215,7 +215,7 @@ fn get_private_conf<'a>(
         PrivacyGetResult::NotFound => Ok(None),
         PrivacyGetResult::Private(serde_json::Value::String(v)) => Ok(Some(v)),
         PrivacyGetResult::Public(serde_json::Value::String(v)) => {
-            log::warn!(
+            tracing::warn!(
                 r#"Value "{}" is given for `{}` publicly (i.e. is visible by anyone who can fetch
                 the router configuration). You may want to replace `{}: "{}"` with `private: 
                 {{{}: "{}"}}`"#,
@@ -232,7 +232,7 @@ fn get_private_conf<'a>(
             public: serde_json::Value::String(public),
             private: serde_json::Value::String(private),
         } => {
-            log::warn!(
+            tracing::warn!(
                 r#"Value "{}" is given for `{}` publicly, but a private value also exists. 
                 The private value will be used, but the public value, which is {} the same as
                  the private one, will still be visible in configurations."#,
@@ -257,17 +257,17 @@ impl TlsClientConfig {
     /// Creates a new instance of [TlsClientConfig] from the configuration specified in the config
     /// file.
     pub fn new(tls_config: &Map<String, Value>) -> ZResult<Self> {
-        log::debug!("Loading TLS config values...");
+        tracing::debug!("Loading TLS config values...");
 
         // Allows mixed user-generated CA and webPKI CA
-        log::debug!("Loading default Web PKI certificates.");
+        tracing::debug!("Loading default Web PKI certificates.");
         let mut root_cert_store: RootCertStore = RootCertStore {
             roots: Self::load_default_webpki_certs().roots,
         };
 
         if let Some(root_ca_cert_file) = get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_FILE)?
         {
-            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_FILE}.");
+            tracing::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_FILE}.");
             Self::load_root_ca_certificate_file_trust_anchors(
                 root_ca_cert_file,
                 &mut root_cert_store,
@@ -275,7 +275,9 @@ impl TlsClientConfig {
         } else if let Some(root_ca_cert_base64) =
             get_private_conf(tls_config, TLS_ROOT_CA_CERTIFICATE_BASE64)?
         {
-            log::debug!("Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_BASE64}.");
+            tracing::debug!(
+                "Loading certificate specified under {TLS_ROOT_CA_CERTIFICATE_BASE64}."
+            );
             Self::load_root_ca_certificate_base64_trust_anchors(
                 root_ca_cert_base64,
                 &mut root_cert_store,
@@ -302,7 +304,9 @@ impl TlsClientConfig {
         root_cert_store: &mut RootCertStore,
     ) -> ZResult<()> {
         if root_ca_cert_file.is_empty() {
-            log::warn!("Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_FILE}`. Ignornig...");
+            tracing::warn!(
+                "Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_FILE}`. Ignornig..."
+            );
             return Ok(());
         };
 
@@ -325,7 +329,7 @@ impl TlsClientConfig {
         root_cert_store: &mut RootCertStore,
     ) -> ZResult<()> {
         if b64_certificate.is_empty() {
-            log::warn!(
+            tracing::warn!(
                 "Provided an empty value for `{TLS_ROOT_CA_CERTIFICATE_BASE64}`. Ignornig..."
             );
             return Ok(());
