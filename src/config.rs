@@ -22,6 +22,7 @@ use webpki::TrustAnchor;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 use zenoh_core::zerror;
+use zenoh_keyexpr::OwnedKeyExpr;
 
 // Properties used by the Backend
 const PROP_S3_ACCESS_KEY: &str = "access_key";
@@ -80,6 +81,7 @@ pub enum OnClosure {
 ///     is returned) as it will be used to strip the prefix of the incoming queries. For instance
 ///     if we receive a PUT operation on the s3/example/test and the `strip_prefix` value was
 ///     s3/example, then the storage will try to perform a PUT operation with /test.
+/// * key_expr: the provided key expression.
 /// * is_read_only: if the storage is configured to be read only
 /// * on_closure: the operation to be performed on the storage upon destruction, either
 ///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
@@ -92,6 +94,7 @@ pub(crate) struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
     pub path_prefix: Option<String>,
+    pub key_expr: OwnedKeyExpr,
     pub is_read_only: bool,
     pub on_closure: OnClosure,
     pub admin_status: serde_json::Value,
@@ -103,6 +106,7 @@ impl S3Config {
     pub async fn new(config: &StorageConfig) -> ZResult<Self> {
         let credentials = S3Config::load_credentials(config)?;
         let path_prefix = S3Config::load_path_prefix(config)?;
+        let key_expr = config.key_expr.to_owned();
         let bucket = S3Config::load_bucket_name(config)?;
         let is_read_only = S3Config::is_read_only(config)?;
         let on_closure = S3Config::load_on_closure(config)?;
@@ -112,6 +116,7 @@ impl S3Config {
             credentials,
             bucket,
             path_prefix,
+            key_expr,
             is_read_only,
             on_closure,
             admin_status,

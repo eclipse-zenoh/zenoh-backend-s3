@@ -203,8 +203,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         tracing::debug!("GET called on client {}. Key: '{}'", self.client, key);
 
-        let prefix = self.config.path_prefix.to_owned();
-        let s3_key = S3Key::from_key_expr(prefix, key.to_owned())?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key.to_owned())?;
 
         let get_result = self.get_stored_value(&s3_key.into()).await?;
         if let Some((timestamp, value)) = get_result {
@@ -225,7 +224,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         tracing::debug!("Put called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)
             .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
@@ -253,7 +252,7 @@ impl Storage for S3Storage {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         tracing::debug!("Delete called on client {}. Key: '{}'", self.client, key);
 
-        let s3_key = S3Key::from_key_expr(self.config.path_prefix.to_owned(), key)?;
+        let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
         if !self.config.is_read_only {
             let client2 = self.client.clone();
             let key2 = s3_key.into();
@@ -279,46 +278,77 @@ impl Storage for S3Storage {
             .map_err(|e| zerror!("Get operation failed: {e}"))?
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
-        let futures = objects.into_iter().map(|object| {
+        let futures = objects.into_iter().filter_map(|object| {
+            let object_key = match object.key() {
+                Some(key) if key == NONE_KEY => return None,
+                Some(key) => key.to_string(),
+                None => {
+                    tracing::error!("Could not get key for object {:?}", object);
+                    return None;
+                }
+            };
+
+            match S3Key::from_key(self.config.path_prefix.as_ref(), object_key.to_owned()) {
+                Ok(s3_key) => {
+                    if !s3_key.key_expr.intersects(&self.config.key_expr) {
+                        return None;
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("Error filtering storage entries: ${err}.");
+                    return None;
+                }
+            };
+
             let client = self.client.clone();
-            self.runtime.spawn(async move {
-                let key = object
-                    .key()
-                    .ok_or_else(|| zerror!("Could not get key for object {:?}", object))?;
-                let result = client.get_head_object(key).await;
+            Some(self.runtime.spawn(async move {
+                let result = client.get_head_object(&object_key).await;
                 match result {
                     Ok(value) => {
-                        let key_expr = if key == NONE_KEY {
-                            None
-                        } else {
-                            Some(OwnedKeyExpr::try_from(key).map_err(|err| {
-                                zerror!("Unable to recreate key expression for '{}': {}.", key, err)
-                            })?)
-                        };
                         let metadata = value.metadata.ok_or_else(|| {
-                            zerror!("Unable to retrieve metadata for key '{}'.", key)
+                            zerror!("Unable to retrieve metadata for key '{}'.", object_key)
                         })?;
                         let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
-                            zerror!("Unable to retrieve timestamp for key '{}'.", key)
+                            zerror!("Unable to retrieve timestamp for key '{}'.", object_key)
+                        })?;
+                        let key_expr = OwnedKeyExpr::from_str(&object_key).map_err(|err| {
+                            zerror!(
+                                "Unable to generate key expression for key '{}': {}",
+                                &object_key,
+                                &err
+                            )
                         })?;
                         Ok((
-                            key_expr,
+                            Some(key_expr),
                             Timestamp::from_str(timestamp.as_str()).map_err(|e| {
-                                zerror!("Unable to obtain timestamp for key: {}. {:?}", key, e)
+                                zerror!(
+                                    "Unable to obtain timestamp for key: {}. {:?}",
+                                    object_key,
+                                    e
+                                )
                             })?,
                         ))
                     }
                     Err(err) => Err(zerror!(
                         "Unable to get '{}' object from storage: {}",
-                        key.to_owned(),
+                        object_key,
                         err
                     )),
                 }
-            })
+            }))
         });
         let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
-        let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> =
-            futures_results.into_iter().flatten().flatten().collect();
+        let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> = futures_results
+            .into_iter()
+            .flatten()
+            .filter_map(|x| match x {
+                Ok(value) => Some(value),
+                Err(err) => {
+                    tracing::error!("{}", err);
+                    None
+                }
+            })
+            .collect();
         Ok(entries)
     }
 }
