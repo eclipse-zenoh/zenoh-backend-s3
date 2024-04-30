@@ -57,16 +57,16 @@ tokio = { version = "1.26.0", features = ["full"] }
 uhlc = "0.5.2"
 webpki = "0.22.0"
 webpki-roots = "0.25"
-zenoh = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main", features = ["unstable"] }
-zenoh_backend_traits = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-buffers = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-codec = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-collections = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-core = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-protocol = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-util = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-keyexpr = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-plugin-trait = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh = { version = "0.11.0-rc.2", features = ["unstable"] }
+zenoh_backend_traits = { version = "0.11.0-rc.2"}
+zenoh-buffers = { version = "0.11.0-rc.2"}
+zenoh-codec = { version = "0.11.0-rc.2"}
+zenoh-collections = { version = "0.11.0-rc.2"}
+zenoh-core = { version = "0.11.0-rc.2"}
+zenoh-protocol = { version = "0.11.0-rc.2"}
+zenoh-util = { version = "0.11.0-rc.2"}
+zenoh-keyexpr = { version = "0.11.0-rc.2"}
+zenoh-plugin-trait = { version = "0.11.0-rc.2"}
 
 [build-dependencies]
 rustc_version = "0.4.0"
@@ -77,4 +77,4 @@ maintainer = "zenoh-dev@eclipse.org"
 copyright = "2022 ZettaScale Technology"
 section = "net"
 license-file = ["LICENSE", "0"]
-depends = "zenoh-plugin-storage-manager (=0.11.0-dev-1)"
+depends = "zenoh-plugin-storage-manager (=0.11.0-rc.2)"
