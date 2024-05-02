@@ -16,6 +16,7 @@ use async_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use aws_sdk_s3::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
+use rustls_pki_types::CertificateDer;
 use serde_json::{Map, Value};
 use std::{fs::File, io::BufReader};
 use webpki::TrustAnchor;
@@ -311,7 +312,8 @@ impl TlsClientConfig {
         };
 
         let mut pem = BufReader::new(File::open(root_ca_cert_file)?);
-        let certs = rustls_pemfile::certs(&mut pem)?;
+        let certs: Vec<CertificateDer> =
+            rustls_pemfile::certs(&mut pem).collect::<Result<_, _>>()?;
         let trust_anchors = certs.iter().map(|cert| {
             let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
             OwnedTrustAnchor::from_subject_spki_name_constraints(
@@ -336,7 +338,8 @@ impl TlsClientConfig {
         };
         let certificate_pem = Self::base64_decode(b64_certificate.as_str())?;
         let mut pem = BufReader::new(certificate_pem.as_slice());
-        let certs = rustls_pemfile::certs(&mut pem)?;
+        let certs: Vec<CertificateDer> =
+            rustls_pemfile::certs(&mut pem).collect::<Result<_, _>>()?;
         let trust_anchors = certs.iter().map(|cert| {
             let ta = TrustAnchor::try_from_cert_der(&cert[..]).unwrap();
             OwnedTrustAnchor::from_subject_spki_name_constraints(
