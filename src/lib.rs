@@ -55,6 +55,8 @@ pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 const STORAGE_WORKER_THREADS: usize = 2;
 
 pub struct S3Backend {}
+
+#[cfg(feature = "dynamic_plugin")]
 zenoh_plugin_trait::declare_plugin!(S3Backend);
 
 impl Plugin for S3Backend {

@@ -34,6 +34,8 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 stats = ["zenoh/stats"]
+dynamic_plugin = []
+default = ["dynamic_plugin"]
 
 [dependencies]
 async-rustls = "0.4.0"
