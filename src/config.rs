@@ -13,7 +13,8 @@
 //
 
 use async_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use aws_sdk_s3::Credentials;
+
+use aws_sdk_s3::config::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use rustls_pki_types::CertificateDer;
@@ -327,7 +328,7 @@ impl TlsClientConfig {
     }
 
     fn load_root_ca_certificate_base64_trust_anchors(
-        b64_certificate: &String,
+        b64_certificate: &str,
         root_cert_store: &mut RootCertStore,
     ) -> ZResult<()> {
         if b64_certificate.is_empty() {
@@ -336,7 +337,7 @@ impl TlsClientConfig {
             );
             return Ok(());
         };
-        let certificate_pem = Self::base64_decode(b64_certificate.as_str())?;
+        let certificate_pem = Self::base64_decode(b64_certificate)?;
         let mut pem = BufReader::new(certificate_pem.as_slice());
         let certs: Vec<CertificateDer> =
             rustls_pemfile::certs(&mut pem).collect::<Result<_, _>>()?;
