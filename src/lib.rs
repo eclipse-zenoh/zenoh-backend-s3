@@ -313,7 +313,8 @@ impl Storage for S3Storage {
                         let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
                             zerror!("Unable to retrieve timestamp for key '{}'.", object_key)
                         })?;
-                        let key_expr = OwnedKeyExpr::from_str(&object_key).map_err(|err| {
+                        let key_expr = OwnedKeyExpr::from_str(object_key.trim_start_matches('/'))
+                            .map_err(|err| {
                             zerror!(
                                 "Unable to generate key expression for key '{}': {}",
                                 &object_key,
