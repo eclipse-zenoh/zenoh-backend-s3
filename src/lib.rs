@@ -145,6 +145,7 @@ impl Volume for S3Volume {
 
         client
             .create_bucket(config.reuse_bucket_is_enabled)
+            .await
             .map_err(|e| zerror!("Couldn't create storage: {e}"))?
             .map_or_else(
                 || tracing::debug!("Reusing existing bucket '{}'.", client),
