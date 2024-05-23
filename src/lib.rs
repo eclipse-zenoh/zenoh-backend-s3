@@ -23,8 +23,6 @@ use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
-#[cfg(feature = "dynamic_plugin")]
-use tokio::runtime::Runtime;
 use utils::S3Key;
 use zenoh_plugin_trait::{plugin_version, Plugin};
 
@@ -193,7 +191,7 @@ impl Volume for S3Volume {
 
         Ok(Box::new(S3Storage {
             config,
-            client: client,
+            client,
             runtime: storage_runtime,
         }))
     }
