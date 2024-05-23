@@ -23,6 +23,8 @@ use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
+#[cfg(feature = "dynamic_plugin")]
+use tokio::runtime::Runtime;
 use utils::S3Key;
 use zenoh_plugin_trait::{plugin_version, Plugin};
 
@@ -68,6 +70,12 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
+        #[cfg(feature = "dynamic_plugin")]
+        let _rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("Cannot spawn tokio runtime in plugin: {e:?}"))?;
+
         zenoh_util::try_init_log_from_env();
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
@@ -94,6 +102,8 @@ impl Plugin for S3Backend {
             endpoint,
             region,
             tls_config,
+            #[cfg(feature = "dynamic_plugin")]
+            _rt,
         }))
     }
 }
@@ -122,6 +132,8 @@ pub struct S3Volume {
     endpoint: Option<String>,
     region: Option<String>,
     tls_config: Option<TlsClientConfig>,
+    #[cfg(feature = "dynamic_plugin")]
+    _rt: Runtime,
 }
 
 #[async_trait]
