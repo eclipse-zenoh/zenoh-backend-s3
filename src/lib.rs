@@ -102,8 +102,6 @@ impl Plugin for S3Backend {
             endpoint,
             region,
             tls_config,
-            #[cfg(feature = "dynamic_plugin")]
-            _rt,
         }))
     }
 }
@@ -132,8 +130,6 @@ pub struct S3Volume {
     endpoint: Option<String>,
     region: Option<String>,
     tls_config: Option<TlsClientConfig>,
-    #[cfg(feature = "dynamic_plugin")]
-    _rt: Runtime,
 }
 
 #[async_trait]
@@ -146,23 +142,46 @@ impl Volume for S3Volume {
         tracing::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
-        let client = S3Client::new(
-            config.credentials.to_owned(),
-            config.bucket.to_owned(),
-            self.region.to_owned(),
-            self.endpoint.to_owned(),
-            self.tls_config.to_owned(),
-        )
-        .await;
+        let client = Arc::new(
+            S3Client::new(
+                config.credentials.to_owned(),
+                config.bucket.to_owned(),
+                self.region.to_owned(),
+                self.endpoint.to_owned(),
+                self.tls_config.to_owned(),
+            )
+            .await,
+        );
 
-        client
-            .create_bucket(config.reuse_bucket_is_enabled)
-            .await
-            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-            .map_or_else(
-                || tracing::debug!("Reusing existing bucket '{}'.", client),
-                |_| tracing::debug!("Bucket '{}' successfully created.", client),
-            );
+        let storage_runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(STORAGE_WORKER_THREADS)
+            .enable_all()
+            .build()
+            .map_err(|e| zerror!(e))?;
+
+        #[cfg(feature = "dynamic_plugin")]
+        {
+            let c_client = client.clone();
+            storage_runtime
+                .spawn(async move { c_client.create_bucket(config.reuse_bucket_is_enabled).await })
+                .await
+                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+                .map_or_else(
+                    |_| tracing::debug!("Reusing existing bucket '{}'.", client),
+                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
+                );
+        }
+        #[cfg(not(feature = "dynamic_plugin"))]
+        {
+            client
+                .create_bucket(config.reuse_bucket_is_enabled)
+                .await
+                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+                .map_or_else(
+                    || tracing::debug!("Reusing existing bucket '{}'.", client),
+                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
+                );
+        }
 
         let storage_runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(STORAGE_WORKER_THREADS)
@@ -174,7 +193,7 @@ impl Volume for S3Volume {
 
         Ok(Box::new(S3Storage {
             config,
-            client: Arc::new(client),
+            client: client,
             runtime: storage_runtime,
         }))
     }
