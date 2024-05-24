@@ -68,12 +68,6 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
-        #[cfg(feature = "dynamic_plugin")]
-        let _rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| format!("Cannot spawn tokio runtime in plugin: {e:?}"))?;
-
         zenoh_util::try_init_log_from_env();
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
@@ -157,6 +151,14 @@ impl Volume for S3Volume {
             .build()
             .map_err(|e| zerror!(e))?;
 
+        // This is a workaroud to make sure the plugin works in both
+        // dynamic loading, and static linking.
+        // On the one hand when the plugin is loaded dynamically it does not have
+        // access to the tokio runtime stored in static.
+        // Thus creating a runtime to run the futures is needed.
+        // On the other hand when the plugin is statically linked it
+        // has access to the static, thus futures can run without needing to
+        // crate a runtime.
         #[cfg(feature = "dynamic_plugin")]
         {
             let c_client = client.clone();
@@ -180,12 +182,6 @@ impl Volume for S3Volume {
                     |_| tracing::debug!("Bucket '{}' successfully created.", client),
                 );
         }
-
-        let storage_runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(STORAGE_WORKER_THREADS)
-            .enable_all()
-            .build()
-            .map_err(|e| zerror!(e))?;
 
         tracing::debug!("Tokio runtime created for storage operations.");
 
