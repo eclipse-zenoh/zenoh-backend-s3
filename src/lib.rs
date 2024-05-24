@@ -134,22 +134,16 @@ impl Volume for S3Volume {
         tracing::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
-        let client = S3Client::new(
-            config.credentials.to_owned(),
-            config.bucket.to_owned(),
-            self.region.to_owned(),
-            self.endpoint.to_owned(),
-            self.tls_config.to_owned(),
-        )
-        .await;
-
-        client
-            .create_bucket(config.reuse_bucket_is_enabled)
-            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-            .map_or_else(
-                || tracing::debug!("Reusing existing bucket '{}'.", client),
-                |_| tracing::debug!("Bucket '{}' successfully created.", client),
-            );
+        let client = Arc::new(
+            S3Client::new(
+                config.credentials.to_owned(),
+                config.bucket.to_owned(),
+                self.region.to_owned(),
+                self.endpoint.to_owned(),
+                self.tls_config.to_owned(),
+            )
+            .await,
+        );
 
         let storage_runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(STORAGE_WORKER_THREADS)
@@ -157,11 +151,43 @@ impl Volume for S3Volume {
             .build()
             .map_err(|e| zerror!(e))?;
 
+        // This is a workaroud to make sure the plugin works in both
+        // dynamic loading, and static linking.
+        // On the one hand when the plugin is loaded dynamically it does not have
+        // access to the tokio runtime stored in static.
+        // Thus creating a runtime to run the futures is needed.
+        // On the other hand when the plugin is statically linked it
+        // has access to the static, thus futures can run without needing to
+        // crate a runtime.
+        #[cfg(feature = "dynamic_plugin")]
+        {
+            let c_client = client.clone();
+            storage_runtime
+                .spawn(async move { c_client.create_bucket(config.reuse_bucket_is_enabled).await })
+                .await
+                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+                .map_or_else(
+                    |_| tracing::debug!("Reusing existing bucket '{}'.", client),
+                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
+                );
+        }
+        #[cfg(not(feature = "dynamic_plugin"))]
+        {
+            client
+                .create_bucket(config.reuse_bucket_is_enabled)
+                .await
+                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+                .map_or_else(
+                    || tracing::debug!("Reusing existing bucket '{}'.", client),
+                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
+                );
+        }
+
         tracing::debug!("Tokio runtime created for storage operations.");
 
         Ok(Box::new(S3Storage {
             config,
-            client: Arc::new(client),
+            client,
             runtime: storage_runtime,
         }))
     }
