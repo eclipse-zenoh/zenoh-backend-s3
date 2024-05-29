@@ -13,7 +13,7 @@
 #
 [package]
 name = "zenoh-backend-s3"
-version = "0.11.0-dev"
+version = "0.11.0-dev-62-g2228b54"
 repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
 homepage = "http://zenoh.io"
 authors = [
