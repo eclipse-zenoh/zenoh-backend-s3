@@ -12,34 +12,37 @@
 #   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 #
 [package]
-name = "zenoh-backend-s3"
-version = "0.11.0-dev"
-repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
-homepage = "http://zenoh.io"
 authors = [
-    "kydos <angelo@icorsaro.net>",
-    "Julien Enoch <julien@enoch.fr>",
-    "Olivier Hécart <olivier.hecart@zettascale.tech>",
-    "Luca Cominardi <luca.cominardi@zettascale.tech>",
-    "Darius Maitia <darius@zettascale.tech>",
+  "Darius Maitia <darius@zettascale.tech>",
+  "Julien Enoch <julien@enoch.fr>",
+  "Luca Cominardi <luca.cominardi@zettascale.tech>",
+  "Olivier Hécart <olivier.hecart@zettascale.tech>",
+  "kydos <angelo@icorsaro.net>",
 ]
-edition = "2021"
-license = "EPL-2.0 OR Apache-2.0"
-categories = ["network-programming", "database"]
+categories = ["database", "network-programming"]
 description = "Backend for Zenoh using AWS S3 API"
+edition = "2021"
+homepage = "http://zenoh.io"
+license = "EPL-2.0 OR Apache-2.0"
+name = "zenoh-backend-s3"
+repository = "https://github.com/eclipse-zenoh/zenoh-backend-s3"
+version = "0.11.0-dev"
 
 [lib]
-name = "zenoh_backend_s3"
 crate-type = ["cdylib", "rlib"]
+name = "zenoh_backend_s3"
 
 [features]
-stats = ["zenoh/stats"]
-dynamic_plugin = []
 default = ["dynamic_plugin"]
+dynamic_plugin = []
+stats = ["zenoh/stats"]
 
 [dependencies]
 async-rustls = "0.4.0"
-async-std = { version = "=1.12.0", default-features = false, features = ["unstable", "tokio1"] }
+async-std = { version = "=1.12.0", default-features = false, features = [
+  "tokio1",
+  "unstable",
+] }
 async-trait = "0.1.66"
 aws-config = "0.51.0"
 aws-sdk-s3 = "0.21.0"
@@ -55,29 +58,30 @@ rustls-pemfile = "2.0.0"
 rustls-pki-types = "1.1.0"
 serde = "1.0.154"
 serde_json = "1.0.94"
-tracing = "0.1"
 tokio = { version = "1.26.0", features = ["full"] }
+tracing = "0.1"
 uhlc = "0.5.2"
 webpki = "0.22.0"
 webpki-roots = "0.25"
-zenoh = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main", features = ["unstable"] }
-zenoh_backend_traits = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main", features = [
+  "unstable",
+] }
 zenoh-buffers = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 zenoh-codec = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 zenoh-collections = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 zenoh-core = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-protocol = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh-util = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 zenoh-keyexpr = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 zenoh-plugin-trait = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-
+zenoh-protocol = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh-util = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh_backend_traits = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 [build-dependencies]
 rustc_version = "0.4.0"
 
 [package.metadata.deb]
-name = "zenoh-backend-s3"
-maintainer = "zenoh-dev@eclipse.org"
 copyright = "2022 ZettaScale Technology"
-section = "net"
-license-file = ["LICENSE", "0"]
 depends = "zenoh-plugin-storage-manager (=0.11.0-dev-1)"
+license-file = ["0", "LICENSE"]
+maintainer = "zenoh-dev@eclipse.org"
+name = "zenoh-backend-s3"
+section = "net"
