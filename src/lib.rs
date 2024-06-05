@@ -23,9 +23,13 @@ use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
+#[cfg(feature = "dynamic_plugin")]
+use tokio::runtime::Runtime;
 use utils::S3Key;
 use zenoh_plugin_trait::{plugin_version, Plugin};
 
+#[cfg(feature = "dynamic_plugin")]
+use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -39,7 +43,6 @@ use zenoh_backend_traits::config::{StorageConfig, VolumeConfig};
 use zenoh_backend_traits::StorageInsertionResult;
 use zenoh_backend_traits::*;
 use zenoh_core::zerror;
-
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 pub const PROP_S3_REGION: &str = "region";
@@ -52,7 +55,17 @@ pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
 // operations.
+#[cfg(feature = "dynamic_plugin")]
 const STORAGE_WORKER_THREADS: usize = 2;
+
+#[cfg(feature = "dynamic_plugin")]
+lazy_static! {
+    pub static ref STORAGE_RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(STORAGE_WORKER_THREADS)
+        .enable_all()
+        .build()
+        .unwrap();
+}
 
 pub struct S3Backend {}
 
@@ -145,12 +158,6 @@ impl Volume for S3Volume {
             .await,
         );
 
-        let storage_runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(STORAGE_WORKER_THREADS)
-            .enable_all()
-            .build()
-            .map_err(|e| zerror!(e))?;
-
         // This is a workaroud to make sure the plugin works in both
         // dynamic loading, and static linking.
         // On the one hand when the plugin is loaded dynamically it does not have
@@ -162,7 +169,7 @@ impl Volume for S3Volume {
         #[cfg(feature = "dynamic_plugin")]
         {
             let c_client = client.clone();
-            storage_runtime
+            STORAGE_RUNTIME
                 .spawn(async move { c_client.create_bucket(config.reuse_bucket_is_enabled).await })
                 .await
                 .map_err(|e| zerror!("Couldn't create storage: {e}"))?
@@ -183,13 +190,7 @@ impl Volume for S3Volume {
                 );
         }
 
-        tracing::debug!("Tokio runtime created for storage operations.");
-
-        Ok(Box::new(S3Storage {
-            config,
-            client,
-            runtime: storage_runtime,
-        }))
+        Ok(Box::new(S3Storage { config, client }))
     }
 
     fn incoming_data_interceptor(&self) -> Option<Arc<dyn Fn(Sample) -> Sample + Send + Sync>> {
@@ -213,7 +214,6 @@ impl Volume for S3Volume {
 struct S3Storage {
     config: S3Config,
     client: Arc<S3Client>,
-    runtime: tokio::runtime::Runtime,
 }
 
 #[async_trait]
@@ -255,15 +255,26 @@ impl Storage for S3Storage {
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)
             .map_or_else(|err| Err(zerror!("Error getting s3 key: {}", err)), Ok)?;
         if !self.config.is_read_only {
-            let client2 = self.client.clone();
-            let key2 = s3_key.into();
             let mut metadata: HashMap<String, String> = HashMap::new();
             metadata.insert(TIMESTAMP_METADATA_KEY.to_string(), timestamp.to_string());
-            self.runtime
-                .spawn(async move { client2.put_object(key2, value, Some(metadata)).await })
-                .await
-                .map_err(|e| zerror!("Put operation failed: {e}"))?
-                .map_err(|e| zerror!("Put operation failed: {e}"))?;
+            #[cfg(feature = "dynamic_plugin")]
+            {
+                let client2 = self.client.clone();
+                let key2 = s3_key.into();
+                STORAGE_RUNTIME
+                    .spawn(async move { client2.put_object(key2, value, Some(metadata)).await })
+                    .await
+                    .map_err(|e| zerror!("Put operation failed: {e}"))?
+                    .map_err(|e| zerror!("Put operation failed: {e}"))?;
+            }
+            #[cfg(not(feature = "dynamic_plugin"))]
+            {
+                self.client
+                    .put_object(s3_key.into(), value, Some(metadata))
+                    .await
+                    .map_err(|e| zerror!("Put operation failed: {e}"))?;
+            }
+
             Ok(StorageInsertionResult::Inserted)
         } else {
             tracing::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
@@ -279,17 +290,26 @@ impl Storage for S3Storage {
     ) -> ZResult<StorageInsertionResult> {
         let key = key.map_or_else(|| OwnedKeyExpr::from_str(NONE_KEY), Ok)?;
         tracing::debug!("Delete called on client {}. Key: '{}'", self.client, key);
-
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
-        if !self.config.is_read_only {
-            let client2 = self.client.clone();
-            let key2 = s3_key.into();
 
-            self.runtime
-                .spawn(async move { client2.delete_object(key2).await })
-                .await
-                .map_err(|e| zerror!("Delete operation failed: {e}"))?
-                .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+        if !self.config.is_read_only {
+            #[cfg(feature = "dynamic_plugin")]
+            {
+                let client2 = self.client.clone();
+                let key2 = s3_key.into();
+                STORAGE_RUNTIME
+                    .spawn(async move { client2.delete_object(key2).await })
+                    .await
+                    .map_err(|e| zerror!("Delete operation failed: {e}"))?
+                    .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+            }
+            #[cfg(not(feature = "dynamic_plugin"))]
+            {
+                self.client
+                    .delete_object(s3_key.into())
+                    .await
+                    .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+            }
             Ok(StorageInsertionResult::Deleted)
         } else {
             tracing::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
@@ -298,12 +318,21 @@ impl Storage for S3Storage {
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
+        #[cfg(feature = "dynamic_plugin")]
         let client = self.client.clone();
-        let objects = self
-            .runtime
+
+        #[cfg(feature = "dynamic_plugin")]
+        let objects = STORAGE_RUNTIME
             .spawn(async move { client.list_objects_in_bucket().await })
             .await
             .map_err(|e| zerror!("Get operation failed: {e}"))?
+            .map_err(|e| zerror!("Get operation failed: {e}"))?;
+
+        #[cfg(not(feature = "dynamic_plugin"))]
+        let objects = self
+            .client
+            .list_objects_in_bucket()
+            .await
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
         let futures = objects.into_iter().filter_map(|object| {
@@ -329,7 +358,8 @@ impl Storage for S3Storage {
             };
 
             let client = self.client.clone();
-            Some(self.runtime.spawn(async move {
+
+            let fut = async move {
                 let result = client.get_head_object(&object_key).await;
                 match result {
                     Ok(value) => {
@@ -364,7 +394,12 @@ impl Storage for S3Storage {
                         err
                     )),
                 }
-            }))
+            };
+            #[cfg(feature = "dynamic_plugin")]
+            return Some(STORAGE_RUNTIME.spawn(fut));
+
+            #[cfg(not(feature = "dynamic_plugin"))]
+            return Some(tokio::task::spawn(fut));
         });
         let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
         let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> = futures_results
@@ -384,15 +419,22 @@ impl Storage for S3Storage {
 
 impl S3Storage {
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
+        #[cfg(feature = "dynamic_plugin")]
         let client2 = self.client.clone();
+
+        #[cfg(feature = "dynamic_plugin")]
         let key2 = key.to_owned();
 
-        let output_result = match self
-            .runtime
+        #[cfg(feature = "dynamic_plugin")]
+        let res = STORAGE_RUNTIME
             .spawn(async move { client2.get_object(key2.as_str()).await })
             .await
-            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?
-        {
+            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
+
+        #[cfg(not(feature = "dynamic_plugin"))]
+        let res = self.client.get_object(key.as_str()).await;
+
+        let output_result = match res {
             Ok(result) => Ok(result),
             Err(e) => {
                 if e.to_string().contains("NoSuchKey") {
