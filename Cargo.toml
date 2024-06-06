@@ -81,7 +81,7 @@ rustc_version = "0.4.0"
 [package.metadata.deb]
 copyright = "2022 ZettaScale Technology"
 depends = "zenoh-plugin-storage-manager (=0.11.0-dev-1)"
-license-file = ["0", "LICENSE"]
+license-file = ["LICENSE", "0"]
 maintainer = "zenoh-dev@eclipse.org"
 name = "zenoh-backend-s3"
 section = "net"
