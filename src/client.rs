@@ -192,7 +192,6 @@ impl S3Client {
     /// - Ok(Some(None)) in case the `reuse_bucket` parameter is true and the bucket already exists
     ///     and is owned by you
     /// - Error in any other case
-    #[tokio::main]
     pub async fn create_bucket(&self, reuse_bucket: bool) -> ZResult<Option<CreateBucketOutput>> {
         let constraint = self
             .region

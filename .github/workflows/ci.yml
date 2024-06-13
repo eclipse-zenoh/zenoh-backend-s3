@@ -44,6 +44,9 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- --deny warnings
+      
+      - name: Clippy no-default-features
+        run: cargo clippy --no-default-features --all-targets -- --deny warnings
 
       - name: Build
         run: cargo build --verbose --all-targets
