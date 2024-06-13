@@ -31,7 +31,6 @@ use zenoh_plugin_trait::{plugin_version, Plugin};
 #[cfg(feature = "dynamic_plugin")]
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::str::FromStr;
 use std::vec;
 
@@ -147,16 +146,13 @@ impl Volume for S3Volume {
         tracing::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
-        let client = Arc::new(
-            S3Client::new(
-                config.credentials.to_owned(),
-                config.bucket.to_owned(),
-                self.region.to_owned(),
-                self.endpoint.to_owned(),
-                self.tls_config.to_owned(),
-            )
-            .await,
-        );
+        let client = Arc::new(S3Client::new(
+            config.credentials.to_owned(),
+            config.bucket.to_owned(),
+            self.region.to_owned(),
+            self.endpoint.to_owned(),
+            self.tls_config.to_owned(),
+        ));
 
         // This is a workaroud to make sure the plugin works in both
         // dynamic loading, and static linking.
@@ -233,7 +229,7 @@ impl Storage for S3Storage {
 
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key.to_owned())?;
 
-        let get_result = self.get_stored_value(&s3_key.into()).await?;
+        let get_result = self.get_stored_value(&s3_key.into())?;
         if let Some((timestamp, value)) = get_result {
             let stored_data = StoredData { value, timestamp };
             Ok(vec![stored_data])
@@ -418,6 +414,7 @@ impl Storage for S3Storage {
 }
 
 impl S3Storage {
+    #[tokio::main]
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
         #[cfg(feature = "dynamic_plugin")]
         let client2 = self.client.clone();
@@ -464,13 +461,11 @@ impl S3Storage {
                 zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
             })?;
 
-        let value = match encoding {
-            Some(encoding) => Encoding::try_from(encoding).map_or_else(
-                |_| Value::from(Vec::from(bytes.to_owned())),
-                |result| Value::from(Vec::from(bytes.to_owned())).encoding(result),
-            ),
-            None => Value::from(Vec::from(bytes)),
-        };
+        let mut value = Value::from(Vec::from(bytes));
+        if let Some(encoding) = encoding {
+            value = value.encoding(encoding.into())
+        }
+
         Ok(Some((timestamp, value)))
     }
 }
