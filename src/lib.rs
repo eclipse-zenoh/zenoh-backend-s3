@@ -455,7 +455,7 @@ impl S3Storage {
             })?;
 
         let value = match encoding {
-            Some(encoding) => Value::new(Vec::from(bytes),encoding),
+            Some(encoding) => Value::new(Vec::from(bytes), encoding),
             None => Value::from(Vec::from(bytes)),
         };
 
