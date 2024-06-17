@@ -21,10 +21,10 @@ use rustls_pki_types::CertificateDer;
 use serde_json::{Map, Value};
 use std::{fs::File, io::BufReader};
 use webpki::TrustAnchor;
+use zenoh::internal::zerror;
+use zenoh::key_expr::OwnedKeyExpr;
 use zenoh::Result as ZResult;
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
-use zenoh_core::zerror;
-use zenoh_keyexpr::OwnedKeyExpr;
 
 // Properties used by the Backend
 const PROP_S3_ACCESS_KEY: &str = "access_key";

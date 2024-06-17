@@ -18,31 +18,33 @@ pub mod utils;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
-
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 #[cfg(feature = "dynamic_plugin")]
-use tokio::runtime::Runtime;
-use utils::S3Key;
-use zenoh_keyexpr::OwnedKeyExpr;
-use zenoh_plugin_trait::{plugin_version, Plugin};
-
-#[cfg(feature = "dynamic_plugin")]
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::vec;
-
+#[cfg(feature = "dynamic_plugin")]
+use tokio::runtime::Runtime;
+use utils::S3Key;
+use zenoh::internal::zerror;
 use zenoh::internal::Value;
+use zenoh::key_expr::OwnedKeyExpr;
+use zenoh::selector::Parameters;
 use zenoh::time::Timestamp;
+use zenoh::try_init_log_from_env;
 use zenoh::Result as ZResult;
-use zenoh_backend_traits::config::{StorageConfig, VolumeConfig};
-use zenoh_backend_traits::StorageInsertionResult;
-use zenoh_backend_traits::*;
-use zenoh_core::zerror;
-use zenoh_protocol::core::Parameters;
+use zenoh_backend_traits::{
+    config::{StorageConfig, VolumeConfig},
+    Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
+    VolumeInstance,
+};
+// use zenoh_backend_traits::*;
+use zenoh_plugin_trait::{plugin_version, Plugin};
+
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 pub const PROP_S3_REGION: &str = "region";
@@ -81,7 +83,7 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
-        zenoh_util::try_init_log_from_env();
+        try_init_log_from_env();
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
         let mut config = config.clone();
