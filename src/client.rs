@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::config::TlsClientConfig;
 use aws_config::Region;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::operation::create_bucket::CreateBucketOutput;
@@ -29,12 +30,9 @@ use aws_sdk_s3::types::{
 };
 use aws_sdk_s3::Client;
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
-use zenoh::value::Value;
+use zenoh::internal::zerror;
+use zenoh::internal::Value;
 use zenoh::Result as ZResult;
-use zenoh_buffers::buffer::SplitBuffer;
-use zenoh_core::zerror;
-
-use crate::config::TlsClientConfig;
 
 /// Client to communicate with the S3 storage.
 pub(crate) struct S3Client {
@@ -128,14 +126,14 @@ impl S3Client {
         value: Value,
         metadata: Option<HashMap<String, String>>,
     ) -> ZResult<PutObjectOutput> {
-        let body = ByteStream::from(value.payload.contiguous().to_vec());
+        let body = ByteStream::from(value.payload().into::<Vec<u8>>());
         Ok(self
             .client
             .put_object()
             .bucket(self.bucket.to_owned())
             .key(key)
             .body(body)
-            .set_content_encoding(Some(value.encoding.to_string()))
+            .set_content_encoding(Some(value.encoding().to_string()))
             .set_metadata(metadata)
             .send()
             .await?)

@@ -18,30 +18,33 @@ pub mod utils;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
-
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 #[cfg(feature = "dynamic_plugin")]
-use tokio::runtime::Runtime;
-use utils::S3Key;
-use zenoh_plugin_trait::{plugin_version, Plugin};
-
-#[cfg(feature = "dynamic_plugin")]
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::vec;
-
-use zenoh::prelude::*;
-use zenoh::properties::Properties;
+#[cfg(feature = "dynamic_plugin")]
+use tokio::runtime::Runtime;
+use utils::S3Key;
+use zenoh::internal::zerror;
+use zenoh::internal::Value;
+use zenoh::key_expr::OwnedKeyExpr;
+use zenoh::selector::Parameters;
 use zenoh::time::Timestamp;
+use zenoh::try_init_log_from_env;
 use zenoh::Result as ZResult;
-use zenoh_backend_traits::config::{StorageConfig, VolumeConfig};
-use zenoh_backend_traits::StorageInsertionResult;
-use zenoh_backend_traits::*;
-use zenoh_core::zerror;
+use zenoh_backend_traits::{
+    config::{StorageConfig, VolumeConfig},
+    Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
+    VolumeInstance,
+};
+// use zenoh_backend_traits::*;
+use zenoh_plugin_trait::{plugin_version, Plugin};
+
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
 pub const PROP_S3_REGION: &str = "region";
@@ -80,7 +83,7 @@ impl Plugin for S3Backend {
     const PLUGIN_LONG_VERSION: &'static str = zenoh_plugin_trait::plugin_long_version!();
 
     fn start(_name: &str, config: &Self::StartArgs) -> ZResult<Self::Instance> {
-        zenoh_util::try_init_log_from_env();
+        try_init_log_from_env();
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
         let mut config = config.clone();
@@ -91,10 +94,10 @@ impl Plugin for S3Backend {
         let endpoint = get_optional_string_property(PROP_S3_ENDPOINT, &config)?;
         let region = get_optional_string_property(PROP_S3_REGION, &config)?;
 
-        let mut properties = Properties::default();
-        properties.insert("version".into(), Self::PLUGIN_LONG_VERSION.into());
+        let mut parameters = Parameters::default();
+        parameters.insert("version", Self::PLUGIN_LONG_VERSION);
 
-        let admin_status = HashMap::from(properties)
+        let admin_status = HashMap::from(parameters)
             .into_iter()
             .map(|(k, v)| (k, serde_json::Value::String(v)))
             .collect();
@@ -187,14 +190,6 @@ impl Volume for S3Volume {
         }
 
         Ok(Box::new(S3Storage { config, client }))
-    }
-
-    fn incoming_data_interceptor(&self) -> Option<Arc<dyn Fn(Sample) -> Sample + Send + Sync>> {
-        None
-    }
-
-    fn outgoing_data_interceptor(&self) -> Option<Arc<dyn Fn(Sample) -> Sample + Send + Sync>> {
-        None
     }
 
     /// Returns the capability of this backend
@@ -461,10 +456,10 @@ impl S3Storage {
                 zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
             })?;
 
-        let mut value = Value::from(Vec::from(bytes));
-        if let Some(encoding) = encoding {
-            value = value.encoding(encoding.into())
-        }
+        let value = match encoding {
+            Some(encoding) => Value::new(Vec::from(bytes), encoding),
+            None => Value::from(Vec::from(bytes)),
+        };
 
         Ok(Some((timestamp, value)))
     }
