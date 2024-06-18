@@ -30,6 +30,7 @@ use std::vec;
 #[cfg(feature = "dynamic_plugin")]
 use tokio::runtime::Runtime;
 use utils::S3Key;
+use zenoh::encoding::Encoding;
 use zenoh::internal::zerror;
 use zenoh::internal::Value;
 use zenoh::key_expr::OwnedKeyExpr;
@@ -446,7 +447,10 @@ impl S3Storage {
         let timestamp = Timestamp::from_str(timestamp.as_str())
             .map_err(|e| zerror!("Unable to obtain timestamp for key: {}. {:?}", key, e))?;
 
-        let encoding = output_result.content_encoding().map(|x| x.to_string());
+        let encoding = output_result
+            .content_encoding()
+            .map_or(Encoding::default(), Encoding::from);
+
         let bytes = output_result
             .body
             .collect()
@@ -456,12 +460,7 @@ impl S3Storage {
                 zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
             })?;
 
-        let value = match encoding {
-            Some(encoding) => Value::new(Vec::from(bytes), encoding),
-            None => Value::from(Vec::from(bytes)),
-        };
-
-        Ok(Some((timestamp, value)))
+        Ok(Some((timestamp, Value::new(Vec::from(bytes), encoding))))
     }
 }
 
