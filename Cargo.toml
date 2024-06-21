@@ -45,7 +45,9 @@ async-std = { version = "=1.12.0", default-features = false, features = [
 ] }
 async-trait = "0.1.66"
 aws-config = ">=1.0.0" # Due to MSRV 1.75.0 for aws-config 
-aws-sdk-s3 = { version = ">=1.29.0", features = ["behavior-version-latest"] } # Due to MSRV 1.75.0 for aws-sdk-s3 >1.29 
+aws-sdk-s3 = { version = ">=1.29.0", features = [
+  "behavior-version-latest",
+] } # Due to MSRV 1.75.0 for aws-sdk-s3 >1.29 
 aws-smithy-client = "0.60.3"
 aws-smithy-runtime = "1.4.0"
 base64 = "0.21.0"
@@ -66,7 +68,7 @@ webpki = "0.22.0"
 webpki-roots = "0.25"
 zenoh = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "dev/1.0.0", features = [
   "unstable",
-  "internal"
+  "internal",
 ] }
 zenoh-plugin-trait = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "dev/1.0.0" }
 zenoh_backend_traits = { version = "0.11.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "dev/1.0.0" }
