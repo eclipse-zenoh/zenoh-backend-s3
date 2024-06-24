@@ -44,10 +44,10 @@ async-std = { version = "=1.12.0", default-features = false, features = [
   "unstable",
 ] }
 async-trait = "0.1.66"
-aws-config = ">=1.0.0" # Due to MSRV 1.75.0 for aws-config 
-aws-sdk-s3 = { version = ">=1.29.0", features = [
+aws-config = "1.0.0" # Due to MSRV 1.75.0 for aws-config
+aws-sdk-s3 = { version = "1.29.0", features = [
   "behavior-version-latest",
-] } # Due to MSRV 1.75.0 for aws-sdk-s3 >1.29 
+] } # Due to MSRV 1.75.0 for aws-sdk-s3 >1.29
 aws-smithy-client = "0.60.3"
 aws-smithy-runtime = "1.4.0"
 base64 = "0.21.0"
