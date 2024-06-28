@@ -16,28 +16,26 @@ pub mod client;
 pub mod config;
 pub mod utils;
 
+use std::{collections::HashMap, str::FromStr, vec};
+
 use async_std::sync::Arc;
 use async_trait::async_trait;
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
-use futures::future::join_all;
-use futures::stream::FuturesUnordered;
+use futures::{future::join_all, stream::FuturesUnordered};
 #[cfg(feature = "dynamic_plugin")]
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::vec;
 #[cfg(feature = "dynamic_plugin")]
 use tokio::runtime::Runtime;
 use utils::S3Key;
-use zenoh::encoding::Encoding;
-use zenoh::internal::zerror;
-use zenoh::internal::Value;
-use zenoh::key_expr::OwnedKeyExpr;
-use zenoh::selector::Parameters;
-use zenoh::time::Timestamp;
-use zenoh::try_init_log_from_env;
-use zenoh::Result as ZResult;
+use zenoh::{
+    bytes::Encoding,
+    internal::{zerror, Value},
+    key_expr::OwnedKeyExpr,
+    query::Parameters,
+    time::Timestamp,
+    try_init_log_from_env, Result as ZResult,
+};
 use zenoh_backend_traits::{
     config::{StorageConfig, VolumeConfig},
     Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
