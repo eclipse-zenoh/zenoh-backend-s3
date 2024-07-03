@@ -12,18 +12,16 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use async_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use std::{fs::File, io::BufReader};
 
+use async_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use aws_sdk_s3::config::Credentials;
 use hyper::client::HttpConnector;
 use hyper_rustls::HttpsConnector;
 use rustls_pki_types::CertificateDer;
 use serde_json::{Map, Value};
-use std::{fs::File, io::BufReader};
 use webpki::TrustAnchor;
-use zenoh::internal::zerror;
-use zenoh::key_expr::OwnedKeyExpr;
-use zenoh::Result as ZResult;
+use zenoh::{internal::zerror, key_expr::OwnedKeyExpr, Result as ZResult};
 use zenoh_backend_traits::config::{PrivacyGetResult, PrivacyTransparentGet, StorageConfig};
 
 // Properties used by the Backend
@@ -366,8 +364,7 @@ impl TlsClientConfig {
     }
 
     pub fn base64_decode(data: &str) -> ZResult<Vec<u8>> {
-        use base64::engine::general_purpose;
-        use base64::Engine;
+        use base64::{engine::general_purpose, Engine};
         Ok(general_purpose::STANDARD
             .decode(data)
             .map_err(|e| zerror!("Unable to perform base64 decoding: {e:?}"))?)

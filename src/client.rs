@@ -12,27 +12,29 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
+
+use aws_config::Region;
+use aws_sdk_s3::{
+    config::Credentials,
+    operation::{
+        create_bucket::CreateBucketOutput, delete_object::DeleteObjectOutput,
+        delete_objects::DeleteObjectsOutput, get_object::GetObjectOutput,
+        head_object::HeadObjectOutput, put_object::PutObjectOutput,
+    },
+    primitives::ByteStream,
+    types::{
+        BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
+    },
+    Client,
+};
+use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
+use zenoh::{
+    internal::{zerror, Value},
+    Result as ZResult,
+};
 
 use crate::config::TlsClientConfig;
-use aws_config::Region;
-use aws_sdk_s3::config::Credentials;
-use aws_sdk_s3::operation::create_bucket::CreateBucketOutput;
-use aws_sdk_s3::operation::delete_object::DeleteObjectOutput;
-use aws_sdk_s3::operation::delete_objects::DeleteObjectsOutput;
-use aws_sdk_s3::operation::get_object::GetObjectOutput;
-use aws_sdk_s3::operation::head_object::HeadObjectOutput;
-use aws_sdk_s3::operation::put_object::PutObjectOutput;
-use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::types::{
-    BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
-};
-use aws_sdk_s3::Client;
-use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
-use zenoh::internal::zerror;
-use zenoh::internal::Value;
-use zenoh::Result as ZResult;
 
 /// Client to communicate with the S3 storage.
 pub(crate) struct S3Client {
