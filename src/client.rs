@@ -56,7 +56,6 @@ impl S3Client {
     ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
     ///     to retrieve the endpoint based on the specified region.
     /// * `tls_config`: optional TlsClientConfig to enable TLS security.
-    #[tokio::main]
     pub async fn new(
         credentials: Credentials,
         bucket: String,
