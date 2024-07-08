@@ -148,13 +148,16 @@ impl Volume for S3Volume {
         tracing::debug!("Creating storage...");
         let config: S3Config = S3Config::new(&config).await?;
 
-        let client = Arc::new(S3Client::new(
-            config.credentials.to_owned(),
-            config.bucket.to_owned(),
-            self.region.to_owned(),
-            self.endpoint.to_owned(),
-            self.tls_config.to_owned(),
-        ));
+        let client = Arc::new(
+            S3Client::new(
+                config.credentials.to_owned(),
+                config.bucket.to_owned(),
+                self.region.to_owned(),
+                self.endpoint.to_owned(),
+                self.tls_config.to_owned(),
+            )
+            .await,
+        );
 
         // This is a workaroud to make sure the plugin works in both
         // dynamic loading, and static linking.
@@ -223,7 +226,7 @@ impl Storage for S3Storage {
 
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key.to_owned())?;
 
-        let get_result = self.get_stored_value(&s3_key.into())?;
+        let get_result = self.get_stored_value(&s3_key.into()).await?;
         if let Some((timestamp, value)) = get_result {
             let stored_data = StoredData { value, timestamp };
             Ok(vec![stored_data])
@@ -408,7 +411,6 @@ impl Storage for S3Storage {
 }
 
 impl S3Storage {
-    #[tokio::main]
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
         #[cfg(feature = "dynamic_plugin")]
         let client2 = self.client.clone();
