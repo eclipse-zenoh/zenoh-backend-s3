@@ -4046,7 +4046,6 @@ name = "zenoh-backend-s3"
 version = "0.11.0-dev"
 dependencies = [
  "async-rustls",
- "async-std",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",

@@ -16,9 +16,8 @@ pub mod client;
 pub mod config;
 pub mod utils;
 
-use std::{collections::HashMap, str::FromStr, vec};
+use std::{collections::HashMap, str::FromStr, sync::Arc, vec};
 
-use async_std::sync::Arc;
 use async_trait::async_trait;
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
@@ -469,7 +468,7 @@ impl Drop for S3Storage {
         match self.config.on_closure {
             config::OnClosure::DestroyBucket => {
                 let client2 = self.client.clone();
-                async_std::task::spawn(async move {
+                STORAGE_RUNTIME.spawn(async move {
                     client2.delete_bucket().await.map_or_else(
                         |e| {
                             tracing::debug!(
