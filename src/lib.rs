@@ -22,9 +22,7 @@ use async_trait::async_trait;
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::{future::join_all, stream::FuturesUnordered};
-#[cfg(feature = "dynamic_plugin")]
 use lazy_static::lazy_static;
-#[cfg(feature = "dynamic_plugin")]
 use tokio::runtime::Runtime;
 use utils::S3Key;
 use zenoh::{
@@ -55,10 +53,8 @@ pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 
 // Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
 // operations.
-#[cfg(feature = "dynamic_plugin")]
 const STORAGE_WORKER_THREADS: usize = 2;
 
-#[cfg(feature = "dynamic_plugin")]
 lazy_static! {
     pub static ref STORAGE_RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(STORAGE_WORKER_THREADS)
