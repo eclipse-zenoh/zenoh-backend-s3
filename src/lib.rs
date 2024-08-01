@@ -51,16 +51,14 @@ pub const NONE_KEY: &str = "@@none_key@@";
 // Metadata keys
 pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 
-// Amount of worker threads to be used by the tokio runtime of the [S3Storage] to handle incoming
-// operations.
-const STORAGE_WORKER_THREADS: usize = 2;
-
+// The TOKIO_RUNTIME is only used in dropping the structure, so we don't need too much resource
+const WORKER_THREAD_NUM: usize = 2;
 lazy_static! {
-    pub static ref STORAGE_RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(STORAGE_WORKER_THREADS)
+    pub static ref TOKIO_RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(WORKER_THREAD_NUM)
         .enable_all()
         .build()
-        .unwrap();
+        .expect("Unable to create runtime");
 }
 
 pub struct S3Backend {}
@@ -154,37 +152,14 @@ impl Volume for S3Volume {
             .await,
         );
 
-        // This is a workaroud to make sure the plugin works in both
-        // dynamic loading, and static linking.
-        // On the one hand when the plugin is loaded dynamically it does not have
-        // access to the tokio runtime stored in static.
-        // Thus creating a runtime to run the futures is needed.
-        // On the other hand when the plugin is statically linked it
-        // has access to the static, thus futures can run without needing to
-        // crate a runtime.
-        #[cfg(feature = "dynamic_plugin")]
-        {
-            let c_client = client.clone();
-            STORAGE_RUNTIME
-                .spawn(async move { c_client.create_bucket(config.reuse_bucket_is_enabled).await })
-                .await
-                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-                .map_or_else(
-                    |_| tracing::debug!("Reusing existing bucket '{}'.", client),
-                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
-                );
-        }
-        #[cfg(not(feature = "dynamic_plugin"))]
-        {
-            client
-                .create_bucket(config.reuse_bucket_is_enabled)
-                .await
-                .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-                .map_or_else(
-                    || tracing::debug!("Reusing existing bucket '{}'.", client),
-                    |_| tracing::debug!("Bucket '{}' successfully created.", client),
-                );
-        }
+        client
+            .create_bucket(config.reuse_bucket_is_enabled)
+            .await
+            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+            .map_or_else(
+                || tracing::debug!("Reusing existing bucket '{}'.", client),
+                |_| tracing::debug!("Bucket '{}' successfully created.", client),
+            );
 
         Ok(Box::new(S3Storage { config, client }))
     }
@@ -245,24 +220,10 @@ impl Storage for S3Storage {
         if !self.config.is_read_only {
             let mut metadata: HashMap<String, String> = HashMap::new();
             metadata.insert(TIMESTAMP_METADATA_KEY.to_string(), timestamp.to_string());
-            #[cfg(feature = "dynamic_plugin")]
-            {
-                let client2 = self.client.clone();
-                let key2 = s3_key.into();
-                STORAGE_RUNTIME
-                    .spawn(async move { client2.put_object(key2, value, Some(metadata)).await })
-                    .await
-                    .map_err(|e| zerror!("Put operation failed: {e}"))?
-                    .map_err(|e| zerror!("Put operation failed: {e}"))?;
-            }
-            #[cfg(not(feature = "dynamic_plugin"))]
-            {
-                self.client
-                    .put_object(s3_key.into(), value, Some(metadata))
-                    .await
-                    .map_err(|e| zerror!("Put operation failed: {e}"))?;
-            }
-
+            self.client
+                .put_object(s3_key.into(), value, Some(metadata))
+                .await
+                .map_err(|e| zerror!("Put operation failed: {e}"))?;
             Ok(StorageInsertionResult::Inserted)
         } else {
             tracing::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
@@ -281,23 +242,10 @@ impl Storage for S3Storage {
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
 
         if !self.config.is_read_only {
-            #[cfg(feature = "dynamic_plugin")]
-            {
-                let client2 = self.client.clone();
-                let key2 = s3_key.into();
-                STORAGE_RUNTIME
-                    .spawn(async move { client2.delete_object(key2).await })
-                    .await
-                    .map_err(|e| zerror!("Delete operation failed: {e}"))?
-                    .map_err(|e| zerror!("Delete operation failed: {e}"))?;
-            }
-            #[cfg(not(feature = "dynamic_plugin"))]
-            {
-                self.client
-                    .delete_object(s3_key.into())
-                    .await
-                    .map_err(|e| zerror!("Delete operation failed: {e}"))?;
-            }
+            self.client
+                .delete_object(s3_key.into())
+                .await
+                .map_err(|e| zerror!("Delete operation failed: {e}"))?;
             Ok(StorageInsertionResult::Deleted)
         } else {
             tracing::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
@@ -306,17 +254,6 @@ impl Storage for S3Storage {
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
-        #[cfg(feature = "dynamic_plugin")]
-        let client = self.client.clone();
-
-        #[cfg(feature = "dynamic_plugin")]
-        let objects = STORAGE_RUNTIME
-            .spawn(async move { client.list_objects_in_bucket().await })
-            .await
-            .map_err(|e| zerror!("Get operation failed: {e}"))?
-            .map_err(|e| zerror!("Get operation failed: {e}"))?;
-
-        #[cfg(not(feature = "dynamic_plugin"))]
         let objects = self
             .client
             .list_objects_in_bucket()
@@ -383,11 +320,8 @@ impl Storage for S3Storage {
                     )),
                 }
             };
-            #[cfg(feature = "dynamic_plugin")]
-            return Some(STORAGE_RUNTIME.spawn(fut));
 
-            #[cfg(not(feature = "dynamic_plugin"))]
-            return Some(tokio::task::spawn(fut));
+            Some(tokio::task::spawn(fut))
         });
         let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
         let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> = futures_results
@@ -407,19 +341,6 @@ impl Storage for S3Storage {
 
 impl S3Storage {
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
-        #[cfg(feature = "dynamic_plugin")]
-        let client2 = self.client.clone();
-
-        #[cfg(feature = "dynamic_plugin")]
-        let key2 = key.to_owned();
-
-        #[cfg(feature = "dynamic_plugin")]
-        let res = STORAGE_RUNTIME
-            .spawn(async move { client2.get_object(key2.as_str()).await })
-            .await
-            .map_err(|e| zerror!("Get operation failed for key '{key}': {e}"))?;
-
-        #[cfg(not(feature = "dynamic_plugin"))]
         let res = self.client.get_object(key.as_str()).await;
 
         let output_result = match res {
@@ -464,7 +385,7 @@ impl Drop for S3Storage {
         match self.config.on_closure {
             config::OnClosure::DestroyBucket => {
                 let client2 = self.client.clone();
-                STORAGE_RUNTIME.spawn(async move {
+                TOKIO_RUNTIME.spawn(async move {
                     client2.delete_bucket().await.map_or_else(
                         |e| {
                             tracing::debug!(
