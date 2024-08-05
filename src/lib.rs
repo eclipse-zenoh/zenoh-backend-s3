@@ -16,14 +16,12 @@ pub mod client;
 pub mod config;
 pub mod utils;
 
-use std::{collections::HashMap, str::FromStr, sync::Arc, vec};
+use std::{collections::HashMap, future::Future, str::FromStr, sync::Arc, vec};
 
 use async_trait::async_trait;
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::{future::join_all, stream::FuturesUnordered};
-use lazy_static::lazy_static;
-use tokio::runtime::Runtime;
 use utils::S3Key;
 use zenoh::{
     bytes::Encoding,
@@ -51,14 +49,30 @@ pub const NONE_KEY: &str = "@@none_key@@";
 // Metadata keys
 pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
 
-// The TOKIO_RUNTIME is only used in dropping the structure, so we don't need too much resource
 const WORKER_THREAD_NUM: usize = 2;
-lazy_static! {
-    pub static ref TOKIO_RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(WORKER_THREAD_NUM)
-        .enable_all()
-        .build()
-        .expect("Unable to create runtime");
+const MAX_BLOCK_THREAD_NUM: usize = 50;
+lazy_static::lazy_static! {
+    // The global runtime is used in the dynamic plugins, which we can't get the current runtime
+    static ref TOKIO_RUNTIME: tokio::runtime::Runtime = tokio::runtime::Builder::new_multi_thread()
+               .worker_threads(WORKER_THREAD_NUM)
+               .max_blocking_threads(MAX_BLOCK_THREAD_NUM)
+               .enable_all()
+               .build()
+               .expect("Unable to create runtime");
+}
+#[inline(always)]
+fn spawn_runtime(task: impl Future<Output = ()> + Send + 'static) {
+    // Check whether able to get the current runtime
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => {
+            // Able to get the current runtime (standalone binary), spawn on the current runtime
+            rt.spawn(task);
+        }
+        Err(_) => {
+            // Unable to get the current runtime (dynamic plugins), spawn on the global runtime
+            TOKIO_RUNTIME.spawn(task);
+        }
+    }
 }
 
 pub struct S3Backend {}
@@ -385,7 +399,7 @@ impl Drop for S3Storage {
         match self.config.on_closure {
             config::OnClosure::DestroyBucket => {
                 let client2 = self.client.clone();
-                TOKIO_RUNTIME.spawn(async move {
+                spawn_runtime(async move {
                     client2.delete_bucket().await.map_or_else(
                         |e| {
                             tracing::debug!(
