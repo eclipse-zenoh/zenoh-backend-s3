@@ -39,10 +39,6 @@ stats = ["zenoh/stats"]
 
 [dependencies]
 async-rustls = "0.4.0"
-async-std = { version = "=1.12.0", default-features = false, features = [
-  "tokio1",
-  "unstable",
-] }
 async-trait = "0.1.66"
 aws-config = "=1.0.0" # Due to MSRV 1.75.0 for aws-config
 aws-sdk-s3 = { version = "=1.29.0", features = [
