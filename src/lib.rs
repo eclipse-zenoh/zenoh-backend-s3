@@ -166,14 +166,25 @@ impl Volume for S3Volume {
             .await,
         );
 
-        client
-            .create_bucket(config.reuse_bucket_is_enabled)
-            .await
-            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-            .map_or_else(
-                || tracing::debug!("Reusing existing bucket '{}'.", client),
-                |_| tracing::debug!("Bucket '{}' successfully created.", client),
-            );
+        // In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+        // In this case, we need to provide our own runtime to avoid the issue.
+        match tokio::runtime::Handle::try_current() {
+            Ok(_) => client.create_bucket(config.reuse_bucket_is_enabled).await,
+            Err(_) => {
+                let c_client = client.clone();
+                TOKIO_RUNTIME
+                    .spawn(
+                        async move { c_client.create_bucket(config.reuse_bucket_is_enabled).await },
+                    )
+                    .await
+                    .map_err(|e| zerror!("Unable to spawn the task for create_bucket: {e}"))?
+            }
+        }
+        .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+        .map_or_else(
+            || tracing::debug!("Reusing existing bucket '{}'.", client),
+            |_| tracing::debug!("Bucket '{}' successfully created.", client),
+        );
 
         Ok(Box::new(S3Storage { config, client }))
     }
@@ -234,10 +245,26 @@ impl Storage for S3Storage {
         if !self.config.is_read_only {
             let mut metadata: HashMap<String, String> = HashMap::new();
             metadata.insert(TIMESTAMP_METADATA_KEY.to_string(), timestamp.to_string());
-            self.client
-                .put_object(s3_key.into(), value, Some(metadata))
-                .await
-                .map_err(|e| zerror!("Put operation failed: {e}"))?;
+
+            // In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+            // In this case, we need to provide our own runtime to avoid the issue.
+            match tokio::runtime::Handle::try_current() {
+                Ok(_) => {
+                    self.client
+                        .put_object(s3_key.into(), value, Some(metadata))
+                        .await
+                }
+                Err(_) => {
+                    let client2 = self.client.clone();
+                    let key2 = s3_key.into();
+                    TOKIO_RUNTIME
+                        .spawn(async move { client2.put_object(key2, value, Some(metadata)).await })
+                        .await
+                        .map_err(|e| zerror!("Unable to spawn the task for put_object: {e}"))?
+                }
+            }
+            .map_err(|e| zerror!("Put operation failed: {e}"))?;
+
             Ok(StorageInsertionResult::Inserted)
         } else {
             tracing::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
@@ -256,10 +283,21 @@ impl Storage for S3Storage {
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
 
         if !self.config.is_read_only {
-            self.client
-                .delete_object(s3_key.into())
-                .await
-                .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+            // In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+            // In this case, we need to provide our own runtime to avoid the issue.
+            match tokio::runtime::Handle::try_current() {
+                Ok(_) => self.client.delete_object(s3_key.into()).await,
+                Err(_) => {
+                    let client2 = self.client.clone();
+                    let key2 = s3_key.into();
+                    TOKIO_RUNTIME
+                        .spawn(async move { client2.delete_object(key2).await })
+                        .await
+                        .map_err(|e| zerror!("Unable to spawn the task for delete_object: {e}"))?
+                }
+            }
+            .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+
             Ok(StorageInsertionResult::Deleted)
         } else {
             tracing::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
@@ -268,11 +306,21 @@ impl Storage for S3Storage {
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
-        let objects = self
-            .client
-            .list_objects_in_bucket()
-            .await
-            .map_err(|e| zerror!("Get operation failed: {e}"))?;
+        // In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+        // In this case, we need to provide our own runtime to avoid the issue.
+        let objects = match tokio::runtime::Handle::try_current() {
+            Ok(_) => self.client.list_objects_in_bucket().await,
+            Err(_) => {
+                let client = self.client.clone();
+                TOKIO_RUNTIME
+                    .spawn(async move { client.list_objects_in_bucket().await })
+                    .await
+                    .map_err(|e| {
+                        zerror!("Unable to spawn the task for list_objects_in_bucket: {e}")
+                    })?
+            }
+        }
+        .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
         let futures = objects.into_iter().filter_map(|object| {
             let object_key = match object.key() {
@@ -355,7 +403,19 @@ impl Storage for S3Storage {
 
 impl S3Storage {
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
-        let res = self.client.get_object(key.as_str()).await;
+        // In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+        // In this case, we need to provide our own runtime to avoid the issue.
+        let res = match tokio::runtime::Handle::try_current() {
+            Ok(_) => self.client.get_object(key.as_str()).await,
+            Err(_) => {
+                let client2 = self.client.clone();
+                let key2 = key.to_owned();
+                TOKIO_RUNTIME
+                    .spawn(async move { client2.get_object(key2.as_str()).await })
+                    .await
+                    .map_err(|e| zerror!("Unable to spawn the task for get_object: {e}"))?
+            }
+        };
 
         let output_result = match res {
             Ok(result) => Ok(result),
