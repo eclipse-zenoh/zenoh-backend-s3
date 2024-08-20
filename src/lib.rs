@@ -74,6 +74,30 @@ fn spawn_runtime(task: impl Future<Output = ()> + Send + 'static) {
         }
     }
 }
+// In the crate aws-sdk-s3, it tries to get the current runtime, but it will fail if we load the backend as a dynamic plugin.
+// In this case, we need to provide our own runtime to avoid the issue.
+#[macro_export]
+macro_rules! await_task {
+    ($e: expr, $($x:ident),*) => {
+        match tokio::runtime::Handle::try_current() {
+            Ok(_) => {
+                $e
+            },
+            Err(_) => {
+                // We need to clone all the variables used by async func
+                $(
+                    let $x = $x.clone();
+                )*
+                TOKIO_RUNTIME
+                    .spawn(
+                        async move { $e },
+                    )
+                    .await
+                    .map_err(|e| zerror!("Unable to spawn the task: {e}"))?
+            },
+        }
+    };
+}
 
 pub struct S3Backend {}
 
@@ -166,14 +190,15 @@ impl Volume for S3Volume {
             .await,
         );
 
-        client
-            .create_bucket(config.reuse_bucket_is_enabled)
-            .await
-            .map_err(|e| zerror!("Couldn't create storage: {e}"))?
-            .map_or_else(
-                || tracing::debug!("Reusing existing bucket '{}'.", client),
-                |_| tracing::debug!("Bucket '{}' successfully created.", client),
-            );
+        await_task!(
+            client.create_bucket(config.reuse_bucket_is_enabled).await,
+            client
+        )
+        .map_err(|e| zerror!("Couldn't create storage: {e}"))?
+        .map_or_else(
+            || tracing::debug!("Reusing existing bucket '{}'.", client),
+            |_| tracing::debug!("Bucket '{}' successfully created.", client),
+        );
 
         Ok(Box::new(S3Storage { config, client }))
     }
@@ -234,10 +259,12 @@ impl Storage for S3Storage {
         if !self.config.is_read_only {
             let mut metadata: HashMap<String, String> = HashMap::new();
             metadata.insert(TIMESTAMP_METADATA_KEY.to_string(), timestamp.to_string());
-            self.client
-                .put_object(s3_key.into(), value, Some(metadata))
-                .await
+
+            let key: String = s3_key.into();
+            let client = self.client.clone();
+            await_task!(client.put_object(key, value, Some(metadata)).await,)
                 .map_err(|e| zerror!("Put operation failed: {e}"))?;
+
             Ok(StorageInsertionResult::Inserted)
         } else {
             tracing::warn!("Received PUT for read-only DB on {} - ignored", s3_key);
@@ -256,10 +283,11 @@ impl Storage for S3Storage {
         let s3_key = S3Key::from_key_expr(self.config.path_prefix.as_ref(), key)?;
 
         if !self.config.is_read_only {
-            self.client
-                .delete_object(s3_key.into())
-                .await
+            let key: String = s3_key.into();
+            let client = self.client.clone();
+            await_task!(client.delete_object(key).await,)
                 .map_err(|e| zerror!("Delete operation failed: {e}"))?;
+
             Ok(StorageInsertionResult::Deleted)
         } else {
             tracing::warn!("Received DELETE for read-only DB on {} - ignored", s3_key);
@@ -268,10 +296,8 @@ impl Storage for S3Storage {
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
-        let objects = self
-            .client
-            .list_objects_in_bucket()
-            .await
+        let client = self.client.clone();
+        let objects = await_task!(client.list_objects_in_bucket().await,)
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
         let futures = objects.into_iter().filter_map(|object| {
@@ -355,7 +381,8 @@ impl Storage for S3Storage {
 
 impl S3Storage {
     async fn get_stored_value(&self, key: &String) -> ZResult<Option<(Timestamp, Value)>> {
-        let res = self.client.get_object(key.as_str()).await;
+        let client = self.client.clone();
+        let res = await_task!(client.get_object(key.as_str()).await, key);
 
         let output_result = match res {
             Ok(result) => Ok(result),
