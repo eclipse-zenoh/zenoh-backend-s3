@@ -36,7 +36,6 @@ use zenoh_backend_traits::{
     Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
     VolumeInstance,
 };
-// use zenoh_backend_traits::*;
 use zenoh_plugin_trait::{plugin_version, Plugin};
 
 // Properties used by the Backend
