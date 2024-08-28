@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use client::S3Client;
 use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::{future::join_all, stream::FuturesUnordered};
+
 use utils::S3Key;
 use zenoh::{
     bytes::Encoding,
@@ -36,7 +37,6 @@ use zenoh_backend_traits::{
     Capability, History, Persistence, Storage, StorageInsertionResult, StoredData, Volume,
     VolumeInstance,
 };
-// use zenoh_backend_traits::*;
 use zenoh_plugin_trait::{plugin_version, Plugin};
 
 // Properties used by the Backend
@@ -296,8 +296,16 @@ impl Storage for S3Storage {
     }
 
     async fn get_all_entries(&self) -> ZResult<Vec<(Option<OwnedKeyExpr>, Timestamp)>> {
+        #[cfg(feature = "dynamic_plugin")]
         let client = self.client.clone();
         let objects = await_task!(client.list_objects_in_bucket().await,)
+            .map_err(|e| zerror!("Get operation failed: {e}"))?;
+
+        #[cfg(not(feature = "dynamic_plugin"))]
+        let objects = self
+            .client
+            .list_objects_in_bucket()
+            .await
             .map_err(|e| zerror!("Get operation failed: {e}"))?;
 
         let futures = objects.into_iter().filter_map(|object| {
