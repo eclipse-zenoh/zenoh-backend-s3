@@ -407,14 +407,14 @@ impl S3Storage {
             .content_encoding()
             .map_or(Encoding::default(), Encoding::from);
 
-        let bytes = output_result
+        let bytes = await_task!(output_result
             .body
             .collect()
             .await
             .map(|data| data.into_bytes())
             .map_err(|e| {
                 zerror!("Get operation failed. Couldn't process retrieved contents: {e}")
-            })?;
+            }),)?;
 
         Ok(Some((timestamp, Value::new(Vec::from(bytes), encoding))))
     }
