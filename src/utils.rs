@@ -13,8 +13,8 @@
 //
 use core::fmt;
 use std::convert::TryFrom;
-use zenoh::Result as ZResult;
-use zenoh_keyexpr::OwnedKeyExpr;
+
+use zenoh::{key_expr::OwnedKeyExpr, Result as ZResult};
 
 pub struct S3Key<'a> {
     pub prefix: Option<&'a String>,

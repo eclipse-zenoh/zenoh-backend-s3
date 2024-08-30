@@ -12,22 +12,27 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
-use aws_sdk_s3::model::{
-    BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
+use aws_config::Region;
+use aws_sdk_s3::{
+    config::Credentials,
+    operation::{
+        create_bucket::CreateBucketOutput, delete_object::DeleteObjectOutput,
+        delete_objects::DeleteObjectsOutput, get_object::GetObjectOutput,
+        head_object::HeadObjectOutput, put_object::PutObjectOutput,
+    },
+    primitives::ByteStream,
+    types::{
+        BucketLocationConstraint, CreateBucketConfiguration, Delete, Object, ObjectIdentifier,
+    },
+    Client,
 };
-use aws_sdk_s3::output::{
-    CreateBucketOutput, DeleteObjectOutput, DeleteObjectsOutput, GetObjectOutput, HeadObjectOutput,
+use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
+use zenoh::{
+    internal::{zerror, Value},
+    Result as ZResult,
 };
-use aws_sdk_s3::{output::PutObjectOutput, types::ByteStream, Client};
-use aws_sdk_s3::{Credentials, Endpoint, Region};
-use aws_smithy_client::hyper_ext;
-use zenoh::value::Value;
-use zenoh::Result as ZResult;
-use zenoh_buffers::buffer::SplitBuffer;
-use zenoh_core::zerror;
 
 use crate::config::TlsClientConfig;
 
@@ -64,35 +69,25 @@ impl S3Client {
         config_loader = match region {
             Some(ref region) => config_loader.region(Region::new(region.to_owned())),
             None => {
-                // The region MUST be specified to perform a request to an S3 server when using the
-                // aws_sdk_s3 crate. However when working with the MinIO S3 implementation (where
-                // the region is not considered) then in the config file the region is optional and
-                // we instead specify an empty region here below.
-                tracing::debug!("Region not specified. Setting empty region...");
-                config_loader.region(Region::new(""))
+                // A region MUST be specified when using the aws_sdk_s3 crate independently of the fact
+                // that it may not be used in the future (for instance when using MinIO).
+                tracing::debug!("Region not specified. Setting 'us-east-1' region by default...");
+                config_loader.region(Region::new("us-east-1"))
             }
         };
 
-        config_loader = match endpoint {
-            Some(endpoint) => config_loader.endpoint_resolver(Endpoint::immutable(
-                endpoint.parse().expect("Invalid endpoint: "),
-            )),
-            None => {
-                tracing::debug!("Endpoint not specified.");
-                config_loader
-            }
-        };
+        if let Some(endpoint) = endpoint {
+            config_loader = config_loader.endpoint_url(endpoint)
+        }
 
-        let config = &config_loader.load().await;
+        let sdk_config = &config_loader.load().await;
+        let mut config = aws_sdk_s3::config::Builder::from(sdk_config).force_path_style(true);
 
-        let client = if let Some(tls_config) = tls_config {
-            Client::from_conf_conn(
-                config.into(),
-                hyper_ext::Adapter::builder().build(tls_config.https_connector),
-            )
-        } else {
-            Client::new(config)
-        };
+        if let Some(tls_config) = tls_config {
+            config = config.http_client(HyperClientBuilder::new().build(tls_config.https_connector))
+        }
+
+        let client = Client::from_conf(config.build());
 
         S3Client {
             client,
@@ -132,14 +127,14 @@ impl S3Client {
         value: Value,
         metadata: Option<HashMap<String, String>>,
     ) -> ZResult<PutObjectOutput> {
-        let body = ByteStream::from(value.payload.contiguous().to_vec());
+        let body = ByteStream::from(value.payload().into::<Vec<u8>>());
         Ok(self
             .client
             .put_object()
             .bucket(self.bucket.to_owned())
             .key(key)
             .body(body)
-            .set_content_encoding(Some(value.encoding.to_string()))
+            .set_content_encoding(Some(value.encoding().to_string()))
             .set_metadata(metadata)
             .send()
             .await?)
@@ -172,13 +167,13 @@ impl S3Client {
         for object in objects {
             let identifier = ObjectIdentifier::builder()
                 .set_key(object.key().map(|x| x.to_string()))
-                .build();
+                .build()?;
             object_identifiers.push(identifier);
         }
 
         let delete = Delete::builder()
             .set_objects(Some(object_identifiers))
-            .build();
+            .build()?;
 
         Ok(self
             .client
@@ -213,17 +208,25 @@ impl S3Client {
             .await;
 
         match result {
-            Ok(output) => Ok(Some(output)),
-            Err(aws_sdk_s3::types::SdkError::ServiceError { err, raw }) => {
-                if err.is_bucket_already_owned_by_you() && reuse_bucket {
-                    return Ok(None);
-                };
-                Err(zerror!("Couldn't associate bucket '{self}': {raw:?}").into())
+                Ok(output) => Ok(Some(output)),
+                Err(err) => {
+                    match err.into_service_error() {
+                        aws_sdk_s3::operation::create_bucket::CreateBucketError::BucketAlreadyOwnedByYou(_) => {
+                            if reuse_bucket {
+                                Ok(None)
+                            } else {
+                                Err(zerror!(
+                                    "Attempted to create bucket but '{self}' but it already exists and is
+                                    already owned by you while 'reuse_bucket' is set to false in the configuration."
+                                ).into())
+                            }
+                        },
+                        err => Err(zerror!(
+                            "Couldn't create or associate bucket '{self}': {err:?}."
+                        ).into()),
+                    }
+                }
             }
-            Err(err) => {
-                Err(zerror!("Couldn't create or associate bucket '{self}': {err:?}.").into())
-            }
-        }
     }
 
     /// Deletes the bucket associated to this storage.
@@ -249,7 +252,7 @@ impl S3Client {
             .bucket(self.bucket.to_owned())
             .send()
             .await?;
-        Ok(response.contents().unwrap_or_default().to_vec())
+        Ok(response.contents().to_vec())
     }
 }
 
