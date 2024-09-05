@@ -127,8 +127,8 @@ If successful, then the console can be accessed on http://localhost:9090.
 
               private: {
                 // Credentials for interacting with the S3 bucket
-                access_key: "SARASAFODNN7EXAMPLE",
-                secret_key: "asADasWdKALsI/ASDP22NG/pWokSSLqEXAMPLEKEY",
+                access_key: "<YOUR ACCESS KEY>",
+                secret_key: "<YOUR SECRET KEY>",
               },
             },
           },
