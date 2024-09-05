@@ -60,16 +60,19 @@ lazy_static::lazy_static! {
                .expect("Unable to create runtime");
 }
 #[inline(always)]
-fn spawn_runtime(task: impl Future<Output = ()> + Send + 'static) {
+fn spawn_runtime<T>(task: impl Future<Output = T> + Send + 'static) -> tokio::task::JoinHandle<T>
+where
+    T: Send + 'static,
+{
     // Check whether able to get the current runtime
     match tokio::runtime::Handle::try_current() {
         Ok(rt) => {
             // Able to get the current runtime (standalone binary), spawn on the current runtime
-            rt.spawn(task);
+            rt.spawn(task)
         }
         Err(_) => {
             // Unable to get the current runtime (dynamic plugins), spawn on the global runtime
-            TOKIO_RUNTIME.spawn(task);
+            TOKIO_RUNTIME.spawn(task)
         }
     }
 }
@@ -360,7 +363,7 @@ impl Storage for S3Storage {
                 }
             };
 
-            Some(tokio::task::spawn(fut))
+            Some(spawn_runtime(fut))
         });
         let futures_results = join_all(futures.collect::<FuturesUnordered<_>>()).await;
         let entries: Vec<(Option<OwnedKeyExpr>, Timestamp)> = futures_results
