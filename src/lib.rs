@@ -210,7 +210,6 @@ impl Volume for S3Volume {
         Capability {
             persistence: Persistence::Durable,
             history: History::Latest,
-            read_cost: 1,
         }
     }
 }
