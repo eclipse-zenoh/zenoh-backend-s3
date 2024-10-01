@@ -127,7 +127,7 @@ impl S3Client {
         value: Value,
         metadata: Option<HashMap<String, String>>,
     ) -> ZResult<PutObjectOutput> {
-        let body = ByteStream::from(value.payload().into::<Vec<u8>>());
+        let body = ByteStream::from(value.payload().to_bytes().to_vec());
         Ok(self
             .client
             .put_object()
