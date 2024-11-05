@@ -24,7 +24,11 @@ use config::{S3Config, TlsClientConfig, TLS_PROP};
 use futures::{future::join_all, stream::FuturesUnordered};
 use utils::S3Key;
 use zenoh::{
-    bytes::{Encoding, ZBytes}, internal::zerror, key_expr::OwnedKeyExpr, query::Parameters, time::Timestamp,
+    bytes::{Encoding, ZBytes},
+    internal::zerror,
+    key_expr::OwnedKeyExpr,
+    query::Parameters,
+    time::Timestamp,
     try_init_log_from_env, Result as ZResult,
 };
 use zenoh_backend_traits::{
@@ -234,7 +238,11 @@ impl Storage for S3Storage {
 
         let get_result = self.get_stored_value(&s3_key.into()).await?;
         if let Some((payload, encoding, timestamp)) = get_result {
-            let stored_data = StoredData { payload, encoding, timestamp };
+            let stored_data = StoredData {
+                payload,
+                encoding,
+                timestamp,
+            };
             Ok(vec![stored_data])
         } else {
             Ok(vec![])
@@ -260,8 +268,12 @@ impl Storage for S3Storage {
 
             let key: String = s3_key.into();
             let client = self.client.clone();
-            await_task!(client.put_object(key, payload, encoding, Some(metadata)).await,)
-                .map_err(|e| zerror!("Put operation failed: {e}"))?;
+            await_task!(
+                client
+                    .put_object(key, payload, encoding, Some(metadata))
+                    .await,
+            )
+            .map_err(|e| zerror!("Put operation failed: {e}"))?;
 
             Ok(StorageInsertionResult::Inserted)
         } else {
@@ -378,7 +390,10 @@ impl Storage for S3Storage {
 }
 
 impl S3Storage {
-    async fn get_stored_value(&self, key: &String) -> ZResult<Option<(ZBytes, Encoding, Timestamp)>> {
+    async fn get_stored_value(
+        &self,
+        key: &String,
+    ) -> ZResult<Option<(ZBytes, Encoding, Timestamp)>> {
         let client = self.client.clone();
         let res = await_task!(client.get_object(key.as_str()).await, key);
 

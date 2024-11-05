@@ -29,7 +29,11 @@ use aws_sdk_s3::{
     Client,
 };
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
-use zenoh::{bytes::{Encoding, ZBytes}, internal::zerror, Result as ZResult};
+use zenoh::{
+    bytes::{Encoding, ZBytes},
+    internal::zerror,
+    Result as ZResult,
+};
 
 use crate::config::TlsClientConfig;
 
