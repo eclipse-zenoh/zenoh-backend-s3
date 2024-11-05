@@ -29,10 +29,7 @@ use aws_sdk_s3::{
     Client,
 };
 use aws_smithy_runtime::client::http::hyper_014::HyperClientBuilder;
-use zenoh::{
-    internal::{zerror, Value},
-    Result as ZResult,
-};
+use zenoh::{bytes::{Encoding, ZBytes}, internal::zerror, Result as ZResult};
 
 use crate::config::TlsClientConfig;
 
@@ -124,17 +121,18 @@ impl S3Client {
     pub async fn put_object(
         &self,
         key: String,
-        value: Value,
+        payload: ZBytes,
+        encoding: Encoding,
         metadata: Option<HashMap<String, String>>,
     ) -> ZResult<PutObjectOutput> {
-        let body = ByteStream::from(value.payload().to_bytes().to_vec());
+        let body = ByteStream::from(payload.to_bytes().to_vec());
         Ok(self
             .client
             .put_object()
             .bucket(self.bucket.to_owned())
             .key(key)
             .body(body)
-            .set_content_encoding(Some(value.encoding().to_string()))
+            .set_content_encoding(Some(encoding.to_string()))
             .set_metadata(metadata)
             .send()
             .await?)

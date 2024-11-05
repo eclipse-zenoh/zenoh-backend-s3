@@ -62,12 +62,12 @@ tracing = "0.1"
 uhlc = "0.5.2"
 webpki = "0.22.0"
 webpki-roots = "0.25"
-zenoh = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main", features = [
+zenoh = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "remove_value", features = [
   "unstable",
   "internal",
 ] }
-zenoh-plugin-trait = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh_backend_traits = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh-plugin-trait = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "remove_value" }
+zenoh_backend_traits = { version = "1.0.0-dev", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "remove_value" }
 
 [build-dependencies]
 rustc_version = "0.4.0"
