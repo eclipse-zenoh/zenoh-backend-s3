@@ -3577,7 +3577,7 @@ dependencies = [
 
 [[package]]
 name = "zenoh-backend-s3"
-version = "1.0.0-dev"
+version = "1.0.0-dev-80-g78176db"
 dependencies = [
  "async-rustls",
  "async-trait",
