@@ -23,9 +23,9 @@ This backend relies on [Amazon S3](https://aws.amazon.com/s3/?nc1=h_ls) to imple
 
 Its library name (without OS specific prefix and extension) that zenoh will rely on to find it and load it is **`libzenoh_backend_s3`**.
 
-:point_right: **Install latest release:** see [below](#How-to-install-it)
+:point_right: **Install latest release:** see [below](#how-to-install-it)
 
-:point_right: **Build "main" branch:** see [below](#How-to-build-it)
+:point_right: **Build "main" branch:** see [below](#how-to-build-it)
 
 ---
 
@@ -35,29 +35,29 @@ Prerequisites:
 
 - You have a zenoh router (`zenohd`) installed, and the `libzenoh_backend_s3` library file is available in `~/.zenoh/lib`. Alternatively we can set a symlink to the library, for instance by running:
 
-  ```
+  ```bash
   ln -s ~/zenoh-backend-s3/target/release/libzenoh_backend_s3.dylib  ~/.zenoh/lib/libzenoh_backend_s3.dylib
   ```
 
 - You have an S3 instance running, this could be an AmazonS3 instance or a MinIO instance.
 
-You can setup storages either at zenoh router startup via a configuration file, either at runtime via the zenoh admin space, using for instance the REST API (see https://zenoh.io/docs/manual/plugin-storage-manager/).
+You can setup storages either at zenoh router startup via a configuration file, either at runtime via the zenoh admin space, using for instance the REST API (see [https://zenoh.io/docs/manual/plugin-storage-manager/](https://zenoh.io/docs/manual/plugin-storage-manager/)).
 
-**Setting up a MinIO instance**
+### Setting up a MinIO instance
 
 In order to run the examples of usage from the following section, it is convenient to launch a MinIO instance. To launch MinIO on a Docker container you first, install MinIO with
 
-```
+```bassh
 docker pull minio/minio
 ```
 
 And then you can use the following command to launch the instance:
 
-```
+```bash
 docker run -p 9000:9000 -p 9090:9090  --user $(id -u):$(id -g)  --name minio -e 'MINIO_ROOT_USER=AKIAIOSFODNN7EXAMPLE' -e 'MINIO_ROOT_PASSWORD=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'  -v ${HOME}/minio/data:/data   quay.io/minio/minio server data --console-address ':9090'
 ```
 
-If successful, then the console can be accessed on http://localhost:9090.
+If successful, then the console can be accessed on [http://localhost:9090](http://localhost:9090).
 
 ### **Setup via a JSON5 configuration file**
 
@@ -141,21 +141,21 @@ If successful, then the console can be accessed on http://localhost:9090.
   ```
 
 - Run the zenoh router with:
-  ```
+
+  ```bash
   zenohd -c zenoh.json5
   ```
 
-**Volume configuration when working with AWS S3 storage**
+#### Volume configuration when working with AWS S3 storage
 
-When working with the AWS S3 storage, the region must be specified following the region names indicated in the [Amazon Simple Storage Service endpoints and quotas
-](https://docs.aws.amazon.com/general/latest/gr/s3.html) documentation. The url of the endpoint is not required as the internal endpoint resolver will automatically
+When working with the AWS S3 storage, the region must be specified following the region names indicated in the [Amazon Simple Storage Service endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/s3.html) documentation. The url of the endpoint is not required as the internal endpoint resolver will automatically
 find which one is the endpoint associated to the region specified.
 
 All the storages associated to the volume will use the same region.
 
 The volumes section on the config file will look like:
 
-```
+```json
 storage_manager {
   volumes: {
     s3: {
@@ -167,13 +167,13 @@ storage_manager {
 }
 ```
 
-**Volume configuration when working with MinIO**
+#### Volume configuration when working with MinIO
 
 Inversely, when working with a MinIO S3 storage, then we need to specify the endpoint of the storage rather than the region, which will be ignored by the MinIO server. We can save ourselves to specify the region in that case.
 
 The volumes section on the config file will look like:
 
-```
+```json
 storage_manager {
   volumes: {
     s3: {
@@ -187,15 +187,20 @@ storage_manager {
 ### **Setup at runtime via `curl` commands on the admin space**
 
 - Run the zenoh router:
-  ```
+
+  ```bash
   cargo run --bin=zenohd
   ```
+
 - Add the "s3" backend (the "zenoh_backend_s3" library will be loaded):
-  ```
+
+  ```bash
   curl -X PUT -H 'content-type:application/json' -d '{url: "http://localhost:9000", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}' http://localhost:8000/@/router/local/config/plugins/storage_manager/volumes/s3
   ```
+
 - Add the "s3_storage" storage using the "s3" backend:
-  ```
+
+  ```bash
   curl -X PUT -H 'content-type:application/json' -d '{key_expr:"s3/example/*", strip_prefix:"s3/example", volume: {id: "s3", bucket: "zenoh-bucket", create_bucket: true, region: "eu-west-3", on_closure: "do_nothing", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}}' http://localhost:8000/@/router/local/config/plugins/storage_manager/storages/s3_storage
   ```
 
@@ -226,13 +231,13 @@ In order to establish secure communication through HTTPS we need to provide a ce
 
 TLS certificates can be generated as explained in the [zenoh documentation using Minica](https://zenoh.io/docs/manual/tls/). When running
 
-```
+```bash
 minica --domains localhost
 ```
 
 a private key, a public certificate and a certificate authority certificate is generated:
 
-```
+```raw
 └── certificates
     ├── localhost
     │   ├── cert.pem
@@ -244,7 +249,7 @@ a private key, a public certificate and a certificate authority certificate is g
 On the config file, we need to specify the `root_ca_certificate_file` as this will allow the s3 plugin to validate the MinIO server keys.
 Example:
 
-```
+```json
 tls: {
   private: {
     root_ca_certificate_file: "/home/user/certificates/minio/minica.pem",
@@ -257,13 +262,13 @@ You can also embed directly the root_ca_certificate by inlining it under the fil
 
 The _cert.pem_ and _key.pem_ files correspond to the public certificate and private key respectively. We need to rename them as _public.crt_ and _private.key_ respectively and store them under the MinIO configuration directory (as specified in the [MinIO documentation](https://min.io/docs/minio/linux/operations/network-encryption.html#enabling-tls)). In case you are using running a docker container as previously shown, then we will need to mount the folder containing the certificates as a volume; supposing we stored our certificates under `${HOME}/minio/certs`, we need to start our container as follows:
 
-```
+```bash
 docker run -p 9000:9000 -p 9090:9090  --user $(id -u):$(id -g)  --name minio -e 'MINIO_ROOT_USER=AKIAIOSFODNN7EXAMPLE' -e 'MINIO_ROOT_PASSWORD=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' -v ${HOME}/minio/data:/data -v ${HOME}/minio/certs:/certs quay.io/minio/minio server data --certs-dir certs --console-address ':9090'
 ```
 
 Finally the volume configuration should then look like:
 
-```
+```json
 storage_manager: {
   volumes: {
     s3: {
@@ -292,9 +297,9 @@ To install the latest release of this backend library, you can do as follows:
 
 All release packages can be downloaded from:
 
-- https://download.eclipse.org/zenoh/zenoh-backend-s3/latest/
+- [https://download.eclipse.org/zenoh/zenoh-backend-s3/latest/](https://download.eclipse.org/zenoh/zenoh-backend-s3/latest/)
 
-Each subdirectory has the name of the Rust target. See the platforms each target corresponds to on https://doc.rust-lang.org/stable/rustc/platform-support.html
+Each subdirectory has the name of the Rust target. See the platforms each target corresponds to on [https://doc.rust-lang.org/stable/rustc/platform-support.html](https://doc.rust-lang.org/stable/rustc/platform-support.html)
 
 Choose your platform and download the `.zip` file.  
 Unzip it in the same directory than `zenohd` or to any directory where it can find the backend library (e.g. /usr/lib or ~/.zenoh/lib)
@@ -318,7 +323,7 @@ sudo apt install zenoh-backend-s3
 At first, install [Cargo and Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html). If you already have the Rust toolchain installed, make sure it is up-to-date with:
 
 ```bash
-$ rustup update
+rustup update
 ```
 
 > :warning: **WARNING** :warning: : As Rust doesn't have a stable ABI, the backend library should be
@@ -338,11 +343,11 @@ Here, `zenohd` has been built with the rustc version `1.69.0`.
 Install and use this toolchain with the following command:
 
 ```bash
-$ rustup default 1.69.0
+rustup default 1.69.0
 ```
 
 And then build the backend with:
 
 ```bash
-$ cargo build --release --all-targets
+cargo build --release --all-targets
 ```
