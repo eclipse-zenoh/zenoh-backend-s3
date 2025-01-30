@@ -62,19 +62,19 @@ tracing = "0.1"
 uhlc = "0.5.2"
 webpki = "0.22.0"
 webpki-roots = "0.25"
-zenoh = { version = "1.1.1", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main", features = [
+zenoh = { version = "1.2.0", features = [
   "unstable",
   "internal",
 ] }
-zenoh-plugin-trait = { version = "1.1.1", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
-zenoh_backend_traits = { version = "1.1.1", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh-plugin-trait = { version = "1.2.0"}
+zenoh_backend_traits = { version = "1.2.0"}
 
 [build-dependencies]
 rustc_version = "0.4.0"
 
 [package.metadata.deb]
 copyright = "2022 ZettaScale Technology"
-depends = "zenoh-plugin-storage-manager (=1.1.1)"
+depends = "zenoh-plugin-storage-manager (=1.2.0)"
 license-file = ["LICENSE", "0"]
 maintainer = "zenoh-dev@eclipse.org"
 name = "zenoh-backend-s3"
