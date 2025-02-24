@@ -3773,7 +3773,7 @@ dependencies = [
 
 [[package]]
 name = "zenoh-backend-s3"
-version = "1.2.1"
+version = "1.2.1-15-g2d96224"
 dependencies = [
  "async-rustls",
  "async-trait",
