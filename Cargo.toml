@@ -65,9 +65,9 @@ webpki-roots = "0.25"
 zenoh = { version = "1.3.2", features = [
   "unstable",
   "internal",
-] }
-zenoh-plugin-trait = { version = "1.3.2"}
-zenoh_backend_traits = { version = "1.3.2"}
+] , git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
+zenoh-plugin-trait = { version = "1.3.2", git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
+zenoh_backend_traits = { version = "1.3.2", git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
 
 [build-dependencies]
 rustc_version = "0.4.0"
