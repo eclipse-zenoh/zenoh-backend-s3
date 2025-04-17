@@ -57,7 +57,7 @@ rustls-pemfile = "2.0.0"
 rustls-pki-types = "1.1.0"
 serde = "1.0.154"
 serde_json = "1.0.117"
-tokio = { version = "1.26.0", features = ["full"] }
+tokio = { version = "1.43.1", features = ["full"] }
 tracing = "0.1"
 uhlc = "0.5.2"
 webpki = "0.22.0"
