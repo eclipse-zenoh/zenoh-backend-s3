@@ -195,13 +195,13 @@ storage_manager {
 - Add the "s3" backend (the "zenoh_backend_s3" library will be loaded):
 
   ```bash
-  curl -X PUT -H 'content-type:application/json' -d '{url: "http://localhost:9000", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}' http://localhost:8000/@/router/local/config/plugins/storage_manager/volumes/s3
+  curl -X PUT -H 'content-type:application/json' -d '{url: "http://localhost:9000", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}' http://localhost:8000/@/local/router/config/plugins/storage_manager/volumes/s3
   ```
 
 - Add the "s3_storage" storage using the "s3" backend:
 
   ```bash
-  curl -X PUT -H 'content-type:application/json' -d '{key_expr:"s3/example/*", strip_prefix:"s3/example", volume: {id: "s3", bucket: "zenoh-bucket", create_bucket: true, region: "eu-west-3", on_closure: "do_nothing", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}}' http://localhost:8000/@/router/local/config/plugins/storage_manager/storages/s3_storage
+  curl -X PUT -H 'content-type:application/json' -d '{key_expr:"s3/example/*", strip_prefix:"s3/example", volume: {id: "s3", bucket: "zenoh-bucket", create_bucket: true, region: "eu-west-3", on_closure: "do_nothing", private: {access_key: "AKIAIOSFODNN7EXAMPLE", secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}}}' http://localhost:8000/@/local/router/config/plugins/storage_manager/storages/s3_storage
   ```
 
 ### **Tests using the REST API**
@@ -219,10 +219,10 @@ curl -X GET -H {} -d '{}' http://0.0.0.0:8000/s3/example/test
 curl -X DELETE -H {} -d '{}' http://0.0.0.0:8000/s3/example/test
 
 # To delete the whole storage and the bucket if configured (note in order for this test to work, you need to setup adminspace read/write permissions)
-curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/storages/s3_storage'
+curl -X DELETE 'http://0.0.0.0:8000/@/local/router/config/plugins/storage_manager/storages/s3_storage'
 
 # To delete the whole volume (note in order for this test to work, you need to setup adminspace read/write permissions)
-curl -X DELETE 'http://0.0.0.0:8000/@/router/local/config/plugins/storage_manager/volumes/s3'
+curl -X DELETE 'http://0.0.0.0:8000/@/local/router/config/plugins/storage_manager/volumes/s3'
 ```
 
 ## **Enabling TLS on MinIO**
