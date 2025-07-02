@@ -45,8 +45,20 @@ pub const PROP_S3_REGION: &str = "region";
 // Special key for None (when the prefix being stripped exactly matches the key)
 pub const NONE_KEY: &str = "@@none_key@@";
 
-// Metadata keys
-pub const TIMESTAMP_METADATA_KEY: &str = "timestamp_uhlc";
+pub const TIMESTAMP_METADATA_KEY: &str = "timestamp";
+/// The original value of [`TIMESTAMP_METADATA_KEY`].
+///
+/// NGINX is configured by default with [`underscores_in_headers
+/// off`](https://nginx.org/en/docs/http/ngx_http_core_module.html#underscores_in_headers). This
+/// causes Zenoh PUTs to be dropped before they reach S3 services behind NGINX because of the
+/// underscore in this key name.
+///
+/// All S3 plugins deployed before this key name was deprecated are either Behind NGINX with
+/// `underscores_in_headers off` or not. In both cases zenoh-backend-s3 will first try to read
+/// `TIMESTAMP_METADATA_KEY` then fallback to `TIMESTAMP_METADATA_KEY_DEPRECATED` if the former is
+/// not present. For systems behind NGINX with `underscores_in_headers off`, Zenoh PUTs will start
+/// being registered (i.e. for use-cases where Zenoh would've been used only for GETs).
+pub const TIMESTAMP_METADATA_KEY_DEPRECATED: &str = "timestamp_uhlc";
 
 const WORKER_THREAD_NUM: usize = 2;
 const MAX_BLOCK_THREAD_NUM: usize = 50;
@@ -341,9 +353,12 @@ impl Storage for S3Storage {
                         let metadata = value.metadata.ok_or_else(|| {
                             zerror!("Unable to retrieve metadata for key '{}'.", object_key)
                         })?;
-                        let timestamp = metadata.get(TIMESTAMP_METADATA_KEY).ok_or_else(|| {
-                            zerror!("Unable to retrieve timestamp for key '{}'.", object_key)
-                        })?;
+                        let timestamp = metadata
+                            .get(TIMESTAMP_METADATA_KEY)
+                            .or_else(|| metadata.get(TIMESTAMP_METADATA_KEY_DEPRECATED))
+                            .ok_or_else(|| {
+                                zerror!("Unable to retrieve timestamp for key '{}'.", object_key)
+                            })?;
                         let key_expr = OwnedKeyExpr::from_str(object_key.trim_start_matches('/'))
                             .map_err(|err| {
                             zerror!(
