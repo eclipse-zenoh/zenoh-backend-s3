@@ -45,7 +45,7 @@ pub const PROP_S3_REGION: &str = "region";
 // Special key for None (when the prefix being stripped exactly matches the key)
 pub const NONE_KEY: &str = "@@none_key@@";
 
-pub const TIMESTAMP_METADATA_KEY: &str = "timestamp";
+pub const TIMESTAMP_METADATA_KEY: &str = "zenoh-timestamp";
 /// The original value of [`TIMESTAMP_METADATA_KEY`].
 ///
 /// NGINX is configured by default with [`underscores_in_headers
