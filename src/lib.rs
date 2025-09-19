@@ -37,6 +37,7 @@ use zenoh_backend_traits::{
     VolumeInstance,
 };
 use zenoh_plugin_trait::{plugin_version, Plugin};
+use zenoh_util::ffi::JsonValue;
 
 // Properties used by the Backend
 pub const PROP_S3_ENDPOINT: &str = "url";
@@ -131,9 +132,9 @@ impl Plugin for S3Backend {
         tracing::debug!("S3 Backend {}", Self::PLUGIN_LONG_VERSION);
 
         let mut config = config.clone();
-        config
-            .rest
-            .insert("version".into(), Self::PLUGIN_LONG_VERSION.into());
+        let mut cfg_rest: serde_json::Map<String, serde_json::Value> = config.rest.into();
+        cfg_rest.insert("version".into(), Self::PLUGIN_LONG_VERSION.into());
+        config.rest = cfg_rest.into();
 
         let endpoint = get_optional_string_property(PROP_S3_ENDPOINT, &config)?;
         let region = get_optional_string_property(PROP_S3_REGION, &config)?;
@@ -158,7 +159,7 @@ impl Plugin for S3Backend {
 }
 
 fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResult<Option<String>> {
-    match config.rest.get(property) {
+    match config.rest.into_serde_map().get(property) {
         Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
         None => {
             tracing::debug!("Property '{property}' was not specified. ");
@@ -169,7 +170,7 @@ fn get_optional_string_property(property: &str, config: &VolumeConfig) -> ZResul
 }
 
 fn load_tls_config(config: &VolumeConfig) -> ZResult<Option<TlsClientConfig>> {
-    match config.rest.get(TLS_PROP) {
+    match config.rest.into_serde_map().get(TLS_PROP) {
         Some(serde_json::Value::Object(tls_config)) => Ok(Some(TlsClientConfig::new(tls_config)?)),
         None => Ok(None),
         _ => Err(zerror!("Property {TLS_PROP} is malformed.").into()),
@@ -185,8 +186,8 @@ pub struct S3Volume {
 
 #[async_trait]
 impl Volume for S3Volume {
-    fn get_admin_status(&self) -> serde_json::Value {
-        self.admin_status.clone()
+    fn get_admin_status(&self) -> JsonValue {
+        (&self.admin_status).into()
     }
 
     async fn create_storage(&self, config: StorageConfig) -> ZResult<Box<dyn Storage>> {
@@ -233,8 +234,8 @@ struct S3Storage {
 
 #[async_trait]
 impl Storage for S3Storage {
-    fn get_admin_status(&self) -> serde_json::Value {
-        self.config.admin_status.to_owned()
+    fn get_admin_status(&self) -> JsonValue {
+        (&self.config.admin_status).into()
     }
 
     /// Function to retrieve the sample associated with a single key.
