@@ -125,7 +125,8 @@ impl S3Config {
     }
 
     fn load_credentials(config: &StorageConfig) -> ZResult<Credentials> {
-        let volume_cfg = config.volume_cfg.as_object().ok_or_else(|| {
+        let cfg: Value = (&config.volume_cfg).into();
+        let volume_cfg = cfg.as_object().ok_or_else(|| {
             zerror!("Couldn't retrieve private properties of the storage from json5 config file.")
         })?;
 
@@ -146,10 +147,12 @@ impl S3Config {
     }
 
     fn load_bucket_name(config: &StorageConfig) -> ZResult<String> {
-        Ok(match config.volume_cfg.get(PROP_S3_BUCKET) {
-            Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
-            _ => Err(zerror!("Property '{PROP_S3_BUCKET}' was not specified!")),
-        }?)
+        Ok(
+            match config.volume_cfg.into_serde_value().get(PROP_S3_BUCKET) {
+                Some(serde_json::Value::String(name)) => Ok(name.to_owned()),
+                _ => Err(zerror!("Property '{PROP_S3_BUCKET}' was not specified!")),
+            }?,
+        )
     }
 
     fn load_path_prefix(config: &StorageConfig) -> ZResult<Option<String>> {
@@ -173,7 +176,11 @@ impl S3Config {
     }
 
     fn is_read_only(config: &StorageConfig) -> ZResult<bool> {
-        match config.volume_cfg.get(PROP_STORAGE_READ_ONLY) {
+        match config
+            .volume_cfg
+            .into_serde_value()
+            .get(PROP_STORAGE_READ_ONLY)
+        {
             None | Some(serde_json::Value::Bool(false)) => Ok(false),
             Some(serde_json::Value::Bool(true)) => Ok(true),
             _ => Err(zerror!(
@@ -185,7 +192,11 @@ impl S3Config {
     }
 
     fn load_on_closure(config: &StorageConfig) -> ZResult<OnClosure> {
-        match config.volume_cfg.get(PROP_STORAGE_ON_CLOSURE) {
+        match config
+            .volume_cfg
+            .into_serde_value()
+            .get(PROP_STORAGE_ON_CLOSURE)
+        {
             Some(serde_json::Value::String(s)) if s == "destroy_bucket" => {
                 Ok(OnClosure::DestroyBucket)
             }
@@ -200,7 +211,11 @@ impl S3Config {
     }
 
     fn reuse_bucket_is_enabled(config: &StorageConfig) -> bool {
-        match config.volume_cfg.get(PROP_STORAGE_REUSE_BUCKET) {
+        match config
+            .volume_cfg
+            .into_serde_value()
+            .get(PROP_STORAGE_REUSE_BUCKET)
+        {
             Some(serde_json::value::Value::Bool(value)) => value.to_owned(),
             _ => false,
         }
