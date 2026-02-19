@@ -53,9 +53,9 @@ impl S3Client {
     /// * `bucket`: name of the bucket/storage
     /// * `region`: region where the bucket/storage ought to be located
     /// * `endpoint`: the endpoint where the storage is located, either an AWS endpoint
-    ///     (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
-    ///     setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
-    ///     to retrieve the endpoint based on the specified region.
+    ///   (see https://docs.aws.amazon.com/general/latest/gr/s3.html) or a custom one if you are
+    ///   setting a MinIO instance. If None then the default AWS endpoint resolver will attempt
+    ///   to retrieve the endpoint based on the specified region.
     /// * `tls_config`: optional TlsClientConfig to enable TLS security.
     pub async fn new(
         credentials: Credentials,
@@ -191,7 +191,7 @@ impl S3Client {
     /// Returns:
     /// - Ok(Some(CreateBucketOutput)) in case the bucket was successfully created
     /// - Ok(Some(None)) in case the `reuse_bucket` parameter is true and the bucket already exists
-    ///     and is owned by you
+    ///   and is owned by you
     /// - Error in any other case
     pub async fn create_bucket(&self, reuse_bucket: bool) -> ZResult<Option<CreateBucketOutput>> {
         let constraint = self

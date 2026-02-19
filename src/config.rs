@@ -73,23 +73,23 @@ pub enum OnClosure {
 /// The fields of the struct have the following purposes:
 ///
 /// * credentials: is loaded from the access_key_id and secret_key_id set in the config file which
-///     were previously set in the S3 configuration in order to grant permissions to a user to
-///     perform operations such as read, write, create bucket, delete bucket...
+///   were previously set in the S3 configuration in order to grant permissions to a user to
+///   perform operations such as read, write, create bucket, delete bucket...
 /// * bucket: name of the bucket the storage is associated to
 /// * path_prefix: the path prefix stated under the `strip_prefix` value of the configuration file.
-///     This prefix needs to match the key expression associated to this storage (otherwise Error
-///     is returned) as it will be used to strip the prefix of the incoming queries. For instance
-///     if we receive a PUT operation on the s3/example/test and the `strip_prefix` value was
-///     s3/example, then the storage will try to perform a PUT operation with /test.
+///   This prefix needs to match the key expression associated to this storage (otherwise Error
+///   is returned) as it will be used to strip the prefix of the incoming queries. For instance
+///   if we receive a PUT operation on the s3/example/test and the `strip_prefix` value was
+///   s3/example, then the storage will try to perform a PUT operation with /test.
 /// * key_expr: the provided key expression.
 /// * is_read_only: if the storage is configured to be read only
 /// * on_closure: the operation to be performed on the storage upon destruction, either
-///     `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
-///     `adminspace.permissions.write` must be set to true for the operation to succeed.
+///   `destroy_bucket` or `do_nothing`. When setting `destroy_bucket` then the config field
+///   `adminspace.permissions.write` must be set to true for the operation to succeed.
 /// * admin_status: the json value of the [StorageConfig]
 /// * reuse_bucket_is_enabled: the storage attempts to create the bucket but if the bucket
-///     was already created and is owned by you then the storage is associated to that preexisting
-///     bucket.
+///   was already created and is owned by you then the storage is associated to that preexisting
+///   bucket.
 pub(crate) struct S3Config {
     pub credentials: Credentials,
     pub bucket: String,
