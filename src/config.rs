@@ -72,9 +72,11 @@ pub enum OnClosure {
 ///
 /// The fields of the struct have the following purposes:
 ///
-/// * credentials: is loaded from the access_key_id and secret_key_id set in the config file which
-///   were previously set in the S3 configuration in order to grant permissions to a user to
-///   perform operations such as read, write, create bucket, delete bucket...
+/// * credentials: is loaded from the access_key and secret_key set in the config file in order
+///   to grant permissions to a user to perform operations such as read, write, create bucket,
+///   delete bucket... When both are omitted, credentials are `None` and the S3 client falls
+///   through to the AWS SDK default credential provider chain (env vars, AWS_CONFIG_FILE, IAM
+///   role, etc.).
 /// * bucket: name of the bucket the storage is associated to
 /// * path_prefix: the path prefix stated under the `strip_prefix` value of the configuration file.
 ///   This prefix needs to match the key expression associated to this storage (otherwise Error
@@ -91,7 +93,7 @@ pub enum OnClosure {
 ///   was already created and is owned by you then the storage is associated to that preexisting
 ///   bucket.
 pub(crate) struct S3Config {
-    pub credentials: Credentials,
+    pub credentials: Option<Credentials>,
     pub bucket: String,
     pub path_prefix: Option<String>,
     pub key_expr: OwnedKeyExpr,
@@ -124,26 +126,30 @@ impl S3Config {
         })
     }
 
-    fn load_credentials(config: &StorageConfig) -> ZResult<Credentials> {
+    fn load_credentials(config: &StorageConfig) -> ZResult<Option<Credentials>> {
         let cfg: Value = (&config.volume_cfg).into();
         let volume_cfg = cfg.as_object().ok_or_else(|| {
             zerror!("Couldn't retrieve private properties of the storage from json5 config file.")
         })?;
 
         let access_key = get_private_conf(volume_cfg, PROP_S3_ACCESS_KEY)
-            .map_err(|err| zerror!("Could not load '{}': {}", PROP_S3_ACCESS_KEY, err))?
-            .ok_or_else(|| zerror!("Property '{PROP_S3_ACCESS_KEY}' needs to be of specified!"))?;
+            .map_err(|err| zerror!("Could not load '{}': {}", PROP_S3_ACCESS_KEY, err))?;
+        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)?;
 
-        let secret_key = get_private_conf(volume_cfg, PROP_S3_SECRET_KEY)?
-            .ok_or_else(|| zerror!("Property '{PROP_S3_SECRET_KEY}' needs to be of specified!"))?;
-
-        Ok(Credentials::new(
-            access_key,
-            secret_key,
-            None,
-            None,
-            DEFAULT_PROVIDER,
-        ))
+        match (access_key, secret_key) {
+            (Some(access_key), Some(secret_key)) => Ok(Some(Credentials::new(
+                access_key,
+                secret_key,
+                None,
+                None,
+                DEFAULT_PROVIDER,
+            ))),
+            (None, None) => Ok(None),
+            (Some(_), None) | (None, Some(_)) => Err(zerror!(
+                "Properties '{PROP_S3_ACCESS_KEY}' and '{PROP_S3_SECRET_KEY}' must be specified together, or neither (to use the AWS SDK default credential provider chain)."
+            )
+            .into()),
+        }
     }
 
     fn load_bucket_name(config: &StorageConfig) -> ZResult<String> {

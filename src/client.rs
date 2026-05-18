@@ -49,7 +49,8 @@ impl S3Client {
     ///
     /// # Arguments
     ///
-    /// * `credentials`: credentials to communicate with the storage
+    /// * `credentials`: credentials to communicate with the storage. When `None`, the AWS SDK
+    ///   default credential provider chain is used (env vars, AWS_CONFIG_FILE, IAM role, etc.).
     /// * `bucket`: name of the bucket/storage
     /// * `region`: region where the bucket/storage ought to be located
     /// * `endpoint`: the endpoint where the storage is located, either an AWS endpoint
@@ -58,14 +59,16 @@ impl S3Client {
     ///   to retrieve the endpoint based on the specified region.
     /// * `tls_config`: optional TlsClientConfig to enable TLS security.
     pub async fn new(
-        credentials: Credentials,
+        credentials: Option<Credentials>,
         bucket: String,
         region: Option<String>,
         endpoint: Option<String>,
         tls_config: Option<TlsClientConfig>,
     ) -> Self {
-        let mut config_loader =
-            aws_config::ConfigLoader::default().credentials_provider(credentials);
+        let mut config_loader = aws_config::ConfigLoader::default();
+        if let Some(credentials) = credentials {
+            config_loader = config_loader.credentials_provider(credentials);
+        }
 
         config_loader = match region {
             Some(ref region) => config_loader.region(Region::new(region.to_owned())),
