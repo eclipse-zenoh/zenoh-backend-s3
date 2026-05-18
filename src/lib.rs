@@ -413,15 +413,10 @@ impl S3Storage {
         let client = self.client.clone();
         let res = await_task!(client.get_object(key.as_str()).await, key);
 
-        let output_result = match res {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                if e.to_string().contains("NoSuchKey") {
-                    return Ok(None);
-                }
-                Err(zerror!("Get operation failed for key '{key}': {e}"))
-            }
-        }?;
+        let output_result = match res? {
+            Some(result) => result,
+            None => return Ok(None),
+        };
 
         let metadata = output_result
             .metadata
