@@ -58,8 +58,11 @@
             // strategy on storage closure, either `destroy_bucket` or `do_nothing`
             on_closure: "destroy_bucket",
 
+            // Optional credentials for interacting with the S3 bucket.
+            //
+            // When this block is omitted, the AWS default credential provider chain is used, as described here:
+            // https://docs.rs/aws-config/latest/aws_config/default_provider/credentials/struct.DefaultCredentialsChain.html
             private: {
-              // Credentials for interacting with the S3 bucket
               access_key: "<YOUR ACCESS KEY>",
               secret_key: "<YOUR SECRET KEY>",
             },

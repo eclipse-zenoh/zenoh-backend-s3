@@ -125,8 +125,11 @@ If successful, then the console can be accessed on [http://localhost:9090](http:
               // strategy on storage closure, either `destroy_bucket` or `do_nothing`
               on_closure: "destroy_bucket",
 
+              // Optional credentials for interacting with the S3 bucket.
+              //
+              // When this block is omitted, the AWS default credential provider chain is used, as described here:
+              // https://docs.rs/aws-config/latest/aws_config/default_provider/credentials/struct.DefaultCredentialsChain.html
               private: {
-                // Credentials for interacting with the S3 bucket
                 access_key: "<YOUR ACCESS KEY>",
                 secret_key: "<YOUR SECRET KEY>",
               },
@@ -166,6 +169,18 @@ storage_manager {
   ...
 }
 ```
+
+##### Note on credentials when working with AWS S3 storage
+
+The `private { access_key, secret_key }` block in the storage configuration is **optional**. When it is absent, the backend delegates credential resolution to the [AWS default credential provider chain](https://docs.rs/aws-config/latest/aws_config/default_provider/credentials/struct.DefaultCredentialsChain.html), which is tried in the following order:
+
+1. **Environment variables**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN` and `AWS_ACCOUNT_ID`
+2. **AWS profile file**: `~/.aws/config` and `~/.aws/credentials`
+3. **Web Identity Token**: `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN` (optionally `AWS_ROLE_SESSION_NAME`)
+4. **ECS task IAM role**: checked when `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` or `AWS_CONTAINER_CREDENTIALS_FULL_URI` is set; ECS/Fargate injects these automatically when a task IAM role is attached
+5. **EC2 instance metadata (IMDSv2)**: queried last; provides the IAM role attached to the EC2 instance
+
+Omitting the credentials block is the recommended approach when running on AWS infrastructure (ECS, Fargate, EC2), as it avoids storing long-lived static credentials and relies instead on ephemeral IAM role credentials that rotate automatically.
 
 #### Volume configuration when working with MinIO
 
