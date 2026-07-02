@@ -58,14 +58,17 @@ impl S3Client {
     ///   to retrieve the endpoint based on the specified region.
     /// * `tls_config`: optional TlsClientConfig to enable TLS security.
     pub async fn new(
-        credentials: Credentials,
+        credentials: Option<Credentials>,
         bucket: String,
         region: Option<String>,
         endpoint: Option<String>,
         tls_config: Option<TlsClientConfig>,
     ) -> Self {
-        let mut config_loader =
-            aws_config::ConfigLoader::default().credentials_provider(credentials);
+        let mut config_loader = aws_config::ConfigLoader::default();
+
+        if let Some(creds) = credentials {
+            config_loader = config_loader.credentials_provider(creds);
+        }
 
         config_loader = match region {
             Some(ref region) => config_loader.region(Region::new(region.to_owned())),
