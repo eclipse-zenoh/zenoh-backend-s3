@@ -114,9 +114,10 @@ If successful, then the console can be accessed on [http://localhost:9090](http:
               // Bucket to which this storage is associated to
               bucket: "zenoh-bucket",
 
-              // The storage attempts to create the bucket, but if the bucket already exists and is
-              // owned by you, then with 'reuse_bucket' you can associate that preexisting bucket to
-              // the storage, otherwise it will fail.
+              // The storage first checks whether the bucket exists using a read-only 'HeadBucket' call.
+              // If the bucket already exists and is accessible, then with 'reuse_bucket' set to true
+              // the storage is associated to that preexisting bucket; otherwise (bucket missing) it is created.
+              // When 'reuse_bucket' is false, an existing bucket makes the storage creation fail.
               reuse_bucket: true,
 
               // If the storage is read only, it will only handle GET requests

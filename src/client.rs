@@ -20,7 +20,7 @@ use aws_sdk_s3::{
     operation::{
         create_bucket::CreateBucketOutput, delete_object::DeleteObjectOutput,
         delete_objects::DeleteObjectsOutput, get_object::GetObjectOutput,
-        head_object::HeadObjectOutput, put_object::PutObjectOutput,
+        head_bucket::HeadBucketError, head_object::HeadObjectOutput, put_object::PutObjectOutput,
     },
     primitives::ByteStream,
     types::{
@@ -189,14 +189,50 @@ impl S3Client {
             .await?)
     }
 
-    /// Asyncronically creates the bucket associated to this client upon construction on a new
-    /// tokio runtime.
+    /// Ensures the bucket associated to this client is available.
+    ///
+    /// The bucket existence is first checked with a read-only `HeadBucket` call (which only
+    /// requires the `s3:ListBucket` permission) so that the mutating `CreateBucket` operation is
+    /// only issued when the bucket is actually missing.
+    ///
     /// Returns:
-    /// - Ok(Some(CreateBucketOutput)) in case the bucket was successfully created
-    /// - Ok(Some(None)) in case the `reuse_bucket` parameter is true and the bucket already exists
-    ///   and is owned by you
-    /// - Error in any other case
+    /// - `Ok(Some(CreateBucketOutput))` when the bucket was created
+    /// - `Ok(None)` when the bucket already exists and `reuse_bucket` is true
+    /// - `Err` in any other case (bucket already exists while `reuse_bucket` is false, missing
+    ///   permissions, network error, ...)
     pub async fn create_bucket(&self, reuse_bucket: bool) -> ZResult<Option<CreateBucketOutput>> {
+        // Read-only existence check (only requires the s3:ListBucket permission).
+        match self.client.head_bucket().bucket(&self.bucket).send().await {
+            Ok(_) => {
+                // The bucket exists and is accessible.
+                if reuse_bucket {
+                    Ok(None)
+                } else {
+                    Err(zerror!(
+                        "Bucket '{self}' already exists and is accessible while 'reuse_bucket' \
+                         is set to false in the configuration."
+                    )
+                    .into())
+                }
+            }
+            Err(err) => match err.into_service_error() {
+                HeadBucketError::NotFound(_) => {
+                    if reuse_bucket {
+                        tracing::info!(
+                            "Bucket '{self}' not found despite 'reuse_bucket' being enabled; creating it..."
+                        );
+                    }
+                    self.do_create_bucket().await.map(Some)
+                }
+                err => {
+                    Err(zerror!("Couldn't check the existence of bucket '{self}': {err:?}.").into())
+                }
+            },
+        }
+    }
+
+    /// Creates the bucket associated to this client with the default configuration.
+    async fn do_create_bucket(&self) -> ZResult<CreateBucketOutput> {
         let constraint = self
             .region
             .as_ref()
@@ -204,34 +240,13 @@ impl S3Client {
         let cfg = CreateBucketConfiguration::builder()
             .set_location_constraint(constraint)
             .build();
-        let result = self
-            .client
+        self.client
             .create_bucket()
             .create_bucket_configuration(cfg)
             .bucket(self.bucket.to_owned())
             .send()
-            .await;
-
-        match result {
-                Ok(output) => Ok(Some(output)),
-                Err(err) => {
-                    match err.into_service_error() {
-                        aws_sdk_s3::operation::create_bucket::CreateBucketError::BucketAlreadyOwnedByYou(_) => {
-                            if reuse_bucket {
-                                Ok(None)
-                            } else {
-                                Err(zerror!(
-                                    "Attempted to create bucket but '{self}' but it already exists and is
-                                    already owned by you while 'reuse_bucket' is set to false in the configuration."
-                                ).into())
-                            }
-                        },
-                        err => Err(zerror!(
-                            "Couldn't create or associate bucket '{self}': {err:?}."
-                        ).into()),
-                    }
-                }
-            }
+            .await
+            .map_err(|err| zerror!("Couldn't create bucket '{self}': {err:?}.").into())
     }
 
     /// Deletes the bucket associated to this storage.
