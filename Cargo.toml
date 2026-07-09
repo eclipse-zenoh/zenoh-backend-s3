@@ -40,23 +40,19 @@ stats = ["zenoh/stats"]
 [dependencies]
 async-rustls = "0.4.0"
 async-trait = "0.1.66"
-aws-config = "1.0.0"
-aws-sdk-s3 = { version = "1.29.0", features = [
-  "behavior-version-latest",
-] }
-aws-sigv4 = { version = "1.2.9" }
-aws-smithy-runtime-api = { version = "1.7.3" }
+# aws crates are pinned to latest versions supporting MSRV 1.93.0
+aws-config = "=1.8.18"
+aws-sdk-s3 = { version = "=1.137.0", features = ["behavior-version-latest"] }
+aws-sigv4 = { version = "=1.4.5" }
+aws-smithy-runtime-api = { version = "=1.12.3" }
+# aws-smithy-runtime-api-macros is not a direct dependency of zenoh-backend-s3 but the pin is required to be able to build with zenoh's lockfile
+aws-smithy-runtime-api-macros = "=1.0.0"
 aws-smithy-client = "0.60.3"
-# Temporary pin aws-smithy-eventstream to 0.60.20 du to
-# https://github.com/smithy-lang/smithy-rs/issues/4695
-aws-smithy-eventstream = "=0.60.20"
-aws-smithy-types = "1.5.0"
-# Temporary pin time to <0.3.48, since version 0.3.48 is incompatible with aws-smithy-types 1.5.0
-# See https://github.com/smithy-lang/smithy-rs/issues/4698
-time = "=0.3.47"  #
-aws-smithy-async = "1.2.6"
-aws-smithy-xml = "0.60.12"
-aws-smithy-runtime = "1.4.0"
+aws-smithy-eventstream = "=0.60.21"
+aws-smithy-types = "=1.5.0"
+aws-smithy-async = "=1.2.14"
+aws-smithy-xml = "=0.60.15"
+aws-smithy-runtime = "=1.11.3"
 base64 = "0.22.1"
 futures = "0.3.26"
 git-version = "0.3.5"
@@ -67,6 +63,7 @@ rustls-pemfile = "2.2.0"
 rustls-pki-types = "1.1.0"
 serde = "1.0.154"
 serde_json = "1.0.117"
+time = "0.3.53"
 tokio = { version = "1.26.0", features = ["full"] }
 tracing = "0.1"
 uhlc = "0.8.0"
@@ -75,10 +72,10 @@ webpki-roots = "0.25"
 zenoh = { version = "1.9.0", features = [
   "unstable",
   "internal",
-], git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
-zenoh-plugin-trait = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
-zenoh_backend_traits = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
-zenoh-util = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git" , branch = "main" }
+], git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh-plugin-trait = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh_backend_traits = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
+zenoh-util = { version = "1.9.0", git = "https://github.com/eclipse-zenoh/zenoh.git", branch = "main" }
 
 [build-dependencies]
 rustc_version = "0.4.0"
