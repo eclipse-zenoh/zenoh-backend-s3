@@ -40,8 +40,9 @@ stats = ["zenoh/stats"]
 [dependencies]
 async-rustls = "0.4.0"
 async-trait = "0.1.66"
-aws-config = "1.0.0"
-aws-sdk-s3 = { version = "1.29.0", features = [
+aws-config = "1.12.0"
+# Pin S3 to the Smithy dependency generation compatible with aws-config 1.12.0.
+aws-sdk-s3 = { version = "=1.146.0", features = [
   "behavior-version-latest",
 ] }
 aws-sigv4 = { version = "1.2.9" }
@@ -50,7 +51,8 @@ aws-smithy-client = "0.60.3"
 # Temporary pin aws-smithy-eventstream to 0.60.20 du to
 # https://github.com/smithy-lang/smithy-rs/issues/4695
 aws-smithy-eventstream = "=0.60.20"
-aws-smithy-types = "1.5.0"
+# Match aws-config's aws-smithy-json 0.63.0; 1.7.0 causes Document API compile errors.
+aws-smithy-types = "=1.6.3"
 # Temporary pin time to <0.3.48, since version 0.3.48 is incompatible with aws-smithy-types 1.5.0
 # See https://github.com/smithy-lang/smithy-rs/issues/4698
 time = "=0.3.47"  #
