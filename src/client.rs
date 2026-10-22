@@ -101,14 +101,24 @@ impl S3Client {
     }
 
     /// Retrieves the object associated to the [key] specified.
-    pub async fn get_object(&self, key: &str) -> ZResult<GetObjectOutput> {
-        Ok(self
+    ///
+    /// Returns `Ok(None)` if no object exists at [key].
+    pub async fn get_object(&self, key: &str) -> ZResult<Option<GetObjectOutput>> {
+        let result = self
             .client
             .get_object()
             .bucket(&self.bucket)
             .key(key.to_string())
             .send()
-            .await?)
+            .await;
+
+        match result {
+            Ok(output) => Ok(Some(output)),
+            Err(err) => match err.into_service_error() {
+                aws_sdk_s3::operation::get_object::GetObjectError::NoSuchKey(_) => Ok(None),
+                err => Err(zerror!("Get operation failed for key '{key}': {err:?}").into()),
+            },
+        }
     }
 
     /// Retrieves the head object (the header of the object without its actual payload) associated
